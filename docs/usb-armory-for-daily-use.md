@@ -14,6 +14,10 @@
 
 Change /dev/sd[x] to your sdcard location   
 
+#####Customize your own GNU/Linux distro for USBArmory
+
+Please follow the [instruction](https://github.com/inversepath/usbarmory/wiki/Preparing-a-bootable-microSD-image#kernel-linux-490) to build your own GNU/Linux distro. You can use our hardened configs to build the kernel. Otherwise, make sure you use "make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf-" to build the u-boot.
+
 #####Connect to USB armory
 
 Read the wiki first: `https://github.com/inversepath/usbarmory/wiki/Host-communication`   
@@ -30,6 +34,15 @@ Following content is copy from wiki:
     
     # enable IP forwarding   
     echo 1 > /proc/sys/net/ipv4/ip_forward   
+
+For the case that you have a running firewall on your laptop:
+
+    iptables -I OUTPUT -s 10.0.0.1 -j ACCEPT
+    iptables -I FORWARD -s 10.0.0.1 -j ACCEPT
+    iptables -I INPUT -s 10.0.0.1 -j ACCEPT
+    iptables -I INPUT -d 10.0.0.1 -j ACCEPT
+    iptables -I OUTPUT -d 10.0.0.1 -j ACCEPT
+    iptables -I FORWARD -d 10.0.0.1 -j ACCEPT
     
 Using `ip` command rather than `NetworkManager` will avoid the an default route adding to your routing table.   
 For the ip 10.0.0.2 in the host, you can visit the `https://dev.inversepath.com/download/usbarmory/` for more detials.   
