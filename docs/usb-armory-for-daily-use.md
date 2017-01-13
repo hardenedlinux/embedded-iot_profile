@@ -16,7 +16,7 @@ Change /dev/sd[x] to your sdcard location
 
 #####Customize your own GNU/Linux distro for USBArmory
 
-Please follow the [instruction](https://github.com/inversepath/usbarmory/wiki/Preparing-a-bootable-microSD-image#kernel-linux-490) to build your own GNU/Linux distro. You can use our hardened configs to build the kernel. Otherwise, make sure you use "make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf-" to build the u-boot.
+Please follow the [instruction](https://github.com/inversepath/usbarmory/wiki/Preparing-a-bootable-microSD-image#kernel-linux-490) to build your own GNU/Linux distro. You can use our [hardened configs](https://github.com/hardenedlinux/embedded-iot_profile/tree/master/hardened_config) to build the kernel. Otherwise, make sure you use "make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf-" to build the u-boot.
 
 #####Connect to USB armory
 
