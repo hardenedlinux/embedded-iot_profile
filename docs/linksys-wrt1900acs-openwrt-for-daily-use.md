@@ -25,8 +25,14 @@ As a wireless router, if we want to use the wifi function, we should enable it m
 
 #####Integrated shadowsocks
 
-In our location, there is something \*\*Special\*\* about network connectivity. So we must take measures to overcome this kind of \*\*Special\*\*
-As a temporary measure, here comes the shadowsocks.   
+In our location, there is something \*\*Special\*\* about network connectivity. So we must take measures to overcome this kind of \*\*Special\*\*. As a temporary measure, here comes the [shadowsocks](https://github.com/shadowsocks/shadowsocks). In OpenWrt we using the [shadowsocks-libev](https://github.com/shadowsocks/shadowsocks-libev) as our choose. We can find the Shadowsocks-libev for OpenWrt in this [link](https://github.com/shadowsocks/openwrt-shadowsocks)
 
-#####Reference:
+You can build it on your own by following this [instruction](https://github.com/shadowsocks/openwrt-shadowsocks)   
+
+or   
+
+You can using the [prebuild binary](https://bintray.com/aa65535/opkg/shadowsocks-libev/) by Shadowsocks-libev for OpenWrt's maintainer [aa65535](https://github.com/aa65535)    
+
+
+###Reference:
 [1] https://wiki.openwrt.org/toh/linksys/wrt_ac_series
