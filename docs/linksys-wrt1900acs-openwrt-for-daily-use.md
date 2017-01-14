@@ -32,7 +32,24 @@ You can build it on your own by following this [instruction](https://github.com/
 or   
 
 You can using the [prebuild binary](https://bintray.com/aa65535/opkg/shadowsocks-libev/) by Shadowsocks-libev for OpenWrt's maintainer [aa65535](https://github.com/aa65535)    
+<pre>
+opkg update
+opkg install shadowsocks-libev_2.6.1-1_mvebu.ipk
+</pre>
+#####Using EAP-TLS in wifi authentication
 
+Before we using EAP-TLS we must enable WPA Enterprise. After we compare different package that provide wifi support[2]   
 
-###Reference:
-[1] https://wiki.openwrt.org/toh/linksys/wrt_ac_series
+We know, by default the OpenWrt Image for wrt1900acs is using wpad-mini, which don't provide the `WPA Enterprise`, so we should replace something that do provide this function.
+
+<pre>
+opkg update
+opkg remove wpad-mini   
+opkg install wpad
+</pre>
+
+###Reference
+
+[1] https://wiki.openwrt.org/toh/linksys/wrt_ac_series   
+
+[2] https://wiki.openwrt.org/doc/uci/wireless/encryption#atheros_and_generic_mac80211_wifi   
