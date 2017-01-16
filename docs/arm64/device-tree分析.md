@@ -90,17 +90,17 @@ DTC(Device Tree Compile)用于把DTS转换成FDT的工具
    -"disabled"  标识设备不可用（预留或者硬件未连接）
 - "fail"      设备检查到错误，并且设备不能被操作在修复之前
 - "fail-sss"  设备检查到错误，并且设备不能被操作在修复之前。sss和具体设备相关，标识错位的原因。
-#### 2.6.5 #addess-cells #size-cells
+#### 2.6.5 \#addess-cells \#size-cells
 此属性对子节点的的reg有影响，#address-cells表示address使用几个32比特，#size-cells表示size使用几个32比特
 默认#address-cells=2、#size-cells=1
-#### 2.6.7 reg
+#### 2.6.6 reg
 此属性用于表示当前设备的地址
 格式
 ```
 reg <address size [address size [address size [address size ...]]]>
 ```
 `address`、`size`大小和#addess-cells、#size-cells相关
-#### 2.6.8 ranges
+#### 2.6.7 ranges
 格式
 ```
 ranges <child-bus-address parent-bus-address length [child-bus-address parent-bus-address length ...]>
@@ -108,12 +108,12 @@ ranges <child-bus-address parent-bus-address length [child-bus-address parent-bu
 此塑性性标记子节点和父节点的地址映射关系，列：
 `ranges <0x0 0x100 0x200>`
 表示子设备地址0x0-0x200映射到父总线0x100-0x300
-#### 2.6.9 dma-ranges
+#### 2.6.8 dma-ranges
 类似与ranges，表示dma设备访问内存，表示dma内存和主内存的映射关系
 2.6.10 name
 值，字符串
 表示节点的名字，此属性以弃用。
-#### 2.6.10 device_type
+#### 2.6.9 device_type
 值，字符串
 标识设备类型，此属性以弃用。只在CPU和memory节点中使用。
 ### 2.7 标准节点
