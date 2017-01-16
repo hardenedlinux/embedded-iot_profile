@@ -1,5 +1,11 @@
 #arm64架构分析
 
+此文分析基于arm官方文档
+
+[ARM Architecture Reference Manual ARMv8, for ARMv8-A architecture profile](https://static.docs.arm.com/ddi0487/a/DDI0487A_k_armv8_arm_iss10775.pdf)
+
+[ARM Architecture Reference Manual Supplement ARMv8.1, for ARMv8-A architecture profile Errata markup](https://static.docs.arm.com/ddi0557/a/DDI0557A_b_armv8_1_supplement_errata.pdf)
+
 ##指令集
 
 1\. A64 64位ARM指令集，这里64位指数据处理能力即一条指令处理的数据宽度，指令编码使用定长32比特编码
