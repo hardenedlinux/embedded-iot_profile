@@ -102,8 +102,8 @@ ARMv8有两种执行状态：
     - AARCH32->AARCH64
         - RMR.AA64写1
     - 在AARCH32状态下RMR是CP15协处理器的寄存器，通过以下指令访问
-        - MRC P15, 0,  <Rt\>, C12, C0, 2; Read RMR into Rt
-        - MCR P15, 0,  <Rt\>, C12, C0, 2 ; Write Rt to RMR
+        - `MRC P15, 0,  <Rt>, C12, C0, 2`; Read RMR into Rt
+        - `MCR P15, 0,  <Rt>, C12, C0, 2`; Write Rt to RMR
     - RMR是RMR_EL3在32模式下的映射，写此寄存器将触发热复位
 
 - EL2执行状态
