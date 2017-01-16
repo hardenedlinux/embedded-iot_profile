@@ -11,7 +11,9 @@
 ### 1.1.1 准备SD卡
 
 1\. 下载SD卡镜像压缩文件[下载](http://builds.96boards.org/releases/dragonboard410c/linaro/debian/latest/dragonboard410c_sdcard_install_debian*.zip)
+
 2\. 解压文件
+
 3\. 写入SD卡，linux系统下通过`sudo dd if=db410c_sd_install_YYY.img of=/dev/XXX bs=4M oflag=sync status=noxfer`命令写入SD卡（XXX为设备名称），win下需要通过[Win32DiskImager tool](http://sourceforge.net/projects/win32diskimager/)把镜像文件烧入SD卡。
 
 ### 1.1.2 选择从SD卡启动
@@ -36,21 +38,35 @@ win请自行百度adb工具，一般会附带fastboot
 ### 1.2.2 准备镜像文件
 
 1\. 下载启动镜像压缩包[下载](http://builds.96boards.org/releases/dragonboard410c/linaro/debian/latest/boot-linaro-jessie-qcom-snapdragon-arm64*.img.gz)
+
 2\. 下载根文件系统镜像压缩包[下载](http://builds.96boards.org/releases/dragonboard410c/linaro/debian/latest/linaro-jessie-developer-qcom-snapdragon-arm64*.img.gz)
+
+
+
 3\. 下载后解压获取镜像文件
 
 ### 1.2.3 写入内部eMMC存储器
 
 1\.  拨码开关拨到状态0000
+
 2\.  按住音量-（S4）开关，上电
+
 3\.  保持音量-（S4）按下，点击一下电源开关（S2）
+
 4\.  松开音量-（S4）
+
 5\.  插入micro-usb数据线，链接主机
+
 6\.  输入`sudo fastboot devices`测试开发板是否进入fastboot(没有输出即进入fastboot失败)
+
 7\.  输入`sudo fastboot flash boot boot-linaro-jessie-qcom-snapdragon-arm64-BUILD#.img`命令烧入启动镜像文件到boot分区
+
 8\.  输入`sudo fastboot flash rootfs linaro-jessie-developer-qcom-snapdragon-arm64-BUILD#.img`命令烧写根文件系统镜像到rootfs分区
+
 9\.  输入`sudo fastboot reboot`命令重启开发板
+
 10\. 记住，要拔掉micro-usb数据线，不然启动会失败
+
 11\. 用户名和密码都为linaro
 
 # 2 内核编译
@@ -82,9 +98,13 @@ make defconfig distro.config
 ## 2.7 制作启动镜像文件
 
 1\. 下载工具`git clone git://codeaurora.org/quic/kernel/skales，ubuntu下依赖libfdt-dev，需要使用sudo apt install libfdt-dev`命令安装。
+
 2\. 下载初始化内存盘`wget http://builds.96boards.org/releases/dragonboard410c/linaro/debian/16.09/initrd.img-4.4.23-linaro-lt-qcom`
-3\. 制作device-tree-blob命令` ./skales/dtbTool -o dt.img -s 2048 arch/arm64/boot/dts/qcom/`
+
+3\. 制作device-tree-blob命令` ./skales/dtbTool -o dt.img -s 2048 arch/arm64/boot/dts/qcom/` 
+
 4\. 制作启动镜像，命令
+
 ```shell
 
 ```
