@@ -26,6 +26,7 @@
 
 ### 1.1.4 系统安装
 开发板连接电源，等待显示器出现安装界面，根据提示操作即可。
+
 在系统安装完后，拨码开关恢复状态0000,重新上电即可。
 
 ## 1.2 通过fastboot安装系统
@@ -33,6 +34,7 @@
 ### 1.2.1 安装fastboot
 
 linux通过下命令`sudo apt install android-tools-fastboot`安装
+
 win请自行百度adb工具，一般会附带fastboot
 
 ### 1.2.2 准备镜像文件
