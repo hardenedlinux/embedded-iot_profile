@@ -90,9 +90,11 @@ DTC(Device Tree Compile)用于把DTS转换成FDT的工具
    -"disabled"  标识设备不可用（预留或者硬件未连接）
 - "fail"      设备检查到错误，并且设备不能被操作在修复之前
 - "fail-sss"  设备检查到错误，并且设备不能被操作在修复之前。sss和具体设备相关，标识错位的原因。
+
 #### 2.6.5 \#addess-cells \#size-cells
 此属性对子节点的的reg有影响，#address-cells表示address使用几个32比特，#size-cells表示size使用几个32比特
 默认#address-cells=2、#size-cells=1
+
 #### 2.6.6 reg
 此属性用于表示当前设备的地址
 格式
@@ -100,6 +102,7 @@ DTC(Device Tree Compile)用于把DTS转换成FDT的工具
 reg <address size [address size [address size [address size ...]]]>
 ```
 `address`、`size`大小和#addess-cells、#size-cells相关
+
 #### 2.6.7 ranges
 格式
 ```
