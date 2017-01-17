@@ -86,7 +86,7 @@ LTO_REFERENCE_INITCALL，用于防止链接器优化，生成一个静态函数�
 #endif
 ```
 
-链接脚本处理与C程序访问，为了便于链接脚本生成，在include/asm-generic/vmlinux.lds.h头文件中定义了大量的宏（默认对齐、段保留丢弃宏各种段）。其中定义了INIT_CALLS，用于存放上面声明的函数指针
+链接脚本处理与C程序访问，为了便于链接脚本生成，在include/asm-generic/vmlinux.lds.h头文件中定义了大量的宏（默认对齐、段保留丢弃宏以及各种段）。其中定义了INIT_CALLS，用于存放上面声明的函数指针
 
 ```c
 #define INIT_CALLS							\
@@ -525,7 +525,9 @@ arch/arm64/kernel/head.S为内核入口代码，其中主要关注Device-Tree保
  * that are useful before the MMU is enabled. The allocations are described
  * in the entry routines.
  */
-	__HEAD  //在linux/init.h中定义#define  __HEAD  .section  ".head.text","ax"，结合链接脚本，这个段就是输出段的头部
+	__HEAD  //在linux/init.h中定义
+		//#define __HEAD .section ".head.text","ax"
+		//结合链接脚本，这个段就是输出段的头部
 
 	/*
 	 * DO NOT MODIFY. Image header expected by Linux boot-loaders.
