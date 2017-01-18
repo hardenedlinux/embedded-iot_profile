@@ -5,8 +5,13 @@ DT(Device Tree)用于描述硬件信息，是一种树形结构。DT由节点组
 DT有两种形式
 
 - DTS(Device Tree Source)，文本格式遍与阅读和修改
+
 - FDT(Flat Device Tree),DTS通过DTC编译产生的二进制文件
+
 - DTB(Device Tree BLOB)，由多个FDT打包出的二进制文件
+
+  > 此处名字比较乱，官方文档把经过DTC编译生成的二进制文件叫做DTB，而高通把多个打包的二进制文件也叫做DTB。这里暂且这样命名。
+
 
 DTC(Device Tree Compile)用于把DTS转换成FDT的工具
 
