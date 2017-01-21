@@ -22,6 +22,8 @@ git checkout -b mylk remotes/origin/master
 # 4 运行流程
 通过链接脚本arch/arm/system-onesegment.ld第4行ENTRY(\_start)，可以知道程序从\_start开始执行，\_start位于arch/arm/crt0.S中，此文件实现了异常向量表、堆栈初始化、数据段初始化（data、BSS）并把自己移动到合适的地址，最后跳转到kmain
 
+## 4.1 crt0.S
+
 ```c
 #define DSB .byte 0x4f, 0xf0, 0x7f, 0xf5	/* ARM64的数据屏障指令 */
 #define ISB .byte 0x6f, 0xf0, 0x7f, 0xf5	/* ARM64的指令屏障指令 */
@@ -250,6 +252,8 @@ abort_stack:
 abort_stack_top:
 ```
 
+## 4.2 kmain
+
 kmain是little kernel的主函数，操作系统初始化后创建一个线程bootstrap2
 
 ```c
@@ -301,6 +305,16 @@ void kmain(void)
 	dprintf(SPEW, "initializing heap\n");
 	heap_init();/* 初始化栈 */
 
+    /*
+     * 堆栈溢出保护相关
+     * 在堆栈中放入一个常数
+     * 函数返回之前检测
+     * 如果发生变化，说明堆栈被破坏
+     * 此处使用随机数初始化此常数__stack_chk_guard
+     * 需要编译器配合
+     *      在函数入口处在堆栈放入常数
+     *      在函数出口处检测常数是否正确
+     * */
 	__stack_chk_guard_setup();
 
 	// initialize the threading system
@@ -309,9 +323,11 @@ void kmain(void)
 
 	// initialize the dpc system
 	dprintf(SPEW, "initializing dpc\n");
-	/* dpc为一个系统服务
+	/* 
+	 * dpc为一个系统服务
 	 * 用于执行一些比较重要的任务
 	 * 优先级仅次与highest
+	 * 在系统级用于进程资源回收
 	 */
 	dpc_init();
 
@@ -337,6 +353,71 @@ void kmain(void)
 #endif
 }
 ```
+
+### 4.2.1 堆栈保护
+
+kmain代码中有一处比较关键的代码\_\_stack\_chk\_guard\_setup()，此代码与安全相关（防止栈溢出），工作比较简单只是设置全局变量\_\_stack\_chk\_guard。要理解上面的代码需要看一下arm开启栈保护（-fstack-protector）生成的汇编代码。
+
+```c
+int func(){
+	char b[10];
+	gets(b);/* 此处可能溢出 */
+	return 0;
+}
+```
+
+对应汇编代码如下
+
+```asm
+/*
+ * 
+ * 堆栈如下
+ * --------------- SP
+ *
+ * b的空间 10byte
+ *
+ * ---------------
+ * 对齐保留 2byte
+ * --------------- 
+ * canary 4byte
+ * ---------------
+ * FP备份 4byte
+ * --------------- FP
+ * 返回地址 4byte
+ * ---------------
+ */
+
+func:
+	@ args = 0, pretend = 0, frame = 16
+	@ frame_needed = 1, uses_anonymous_args = 0
+	push	{fp, lr}	/* 备份上一级函数的FP，并且备份返回地址 */
+	add	fp, sp, #4		/* 设置FP */
+	sub	sp, sp, #16		/* 开辟堆栈空间 */
+	ldr	r3, .L4			/* 获取__stack_chk_guard的地址 */
+	ldr	r3, [r3]		/* 获取__stack_chk_guard的值 */
+	str	r3, [fp, #-8]	/* 把__stack_chk_guard的值保存到堆栈中 */
+	sub	r3, fp, #20		/* 计算出变量b的地址 */
+	mov	r0, r3
+	bl	gets			/* 函数调用 */
+	mov	r3, #0
+	mov	r0, r3			/* 设置函数返回值 */
+	ldr	r3, .L4			/* 获取__stack_chk_guard的地址 */
+	ldr	r2, [fp, #-8]	/* 获取堆栈中保存的__stack_chk_guard的备份 */
+	ldr	r3, [r3]		/* 获取__stack_chk_guard的值 */
+	cmp	r2, r3			/* 判断堆栈中的值有无变化 */
+	beq	.L3				
+	bl	__stack_chk_fail/* 堆栈中的值被破坏报错 */
+.L3:
+	sub	sp, fp, #4		/* 恢复SP */
+	@ sp needed
+	pop	{fp, pc}		/* 恢复FP，并退出函数 */
+.L5:
+	.align	2
+.L4:
+	.word	__stack_chk_guard
+```
+
+## 4.3 bootstrap2
 
 bootstrap2还有一些与设备相关的初始化工作之后启动apps_init，apps_init实现了一个应用框架，具体实现常见第6章
 
@@ -366,7 +447,6 @@ static int bootstrap2(void *arg)
 
     return 0;
 }
-
 ```
 
 
@@ -754,7 +834,11 @@ status_t event_wait(event_t *);
 ```
 ####5.5.2.4 event_wait_timeout
 带超时等待`event`
+
+```c
 status_t event_wait_timeout(event_t *, time_t); 
+```
+
 ####5.5.2.5 event_signal
 标记一个`event`，reschedule指定要不要立马调度
 ```c
@@ -923,8 +1007,136 @@ st->op1->op2->op3->op4->op5->op6->op7->op8->e
 - dt_size > 0时，device tree在second之后，地址紧接着second
 
 
+# 8 前端系统输入信息
 
+前端系统在内存中保留了一些信息，在kmain->platform_early_init->board_init->platform_detect中被解析
 
+这些内存结构在platform/msm_shared/smem.h定义，在platform/msm_shared/smem.c中解析
 
+## 8.1 内存结构
+
+根据分析，可知内存按如下格式保存信息
+
+```
+smem
+	proc_comm[4]
+	version_info[32]
+	head_info
+    alloc_info[SMEM_MAX]---+
+                           |
+                           |   +-----+ - <--- &(smem) + alloc_info[0].offset
+                           |   |     | ↑
+                           +---|     | alloc_info[0].size
+                           |   |     | ↓
+                           |   +-----+ -
+                           |
+                           |   +-----+ - <--- &(smem) + alloc_info[1].offset
+                           |   |     | ↑
+                           +---|     | alloc_info[1].size
+                           |   |     | ↓
+                           |   +-----+ -
+                           |
+                           |   +-----+ - <--- &(smem) + alloc_info[2].offset
+                           |   |     | ↑
+                           +---|     | alloc_info[2].size
+                           |   |     | ↓
+                           |   +-----+ -
+                           | 
+	                       .
+	                       .
+	                       .
+	                       .
+	                       |   +-----+ - <--- &(smem) + alloc_info[n].offset
+                           |   |     | ↑
+                           +---|     | alloc_info[n].size
+                               |     | ↓
+                               +-----+ -
+```
+
+platform/msm_shared/smem.c主要定义了三个函数用于解析以上的内存结构
+
+### 8.1.1 sem_get_alloc_entry
+
+```c
+void* smem_get_alloc_entry(smem_mem_type_t type, uint32_t* size)
+```
+
+此函数用于获取第`type`个内存块，大小通过`size`返回，地址通过函数返回值获取
+
+### 8.1.2 sem_read_alloc_entry
+
+```c
+unsigned smem_read_alloc_entry(smem_mem_type_t type, void *buf, int len)
+```
+
+此函数从第`type`个内存块开始处拷贝`len`个字节到缓冲内存`buf`中
+
+### 8.1.3 sem_read_alloc_entry_offset
+
+```c
+unsigned smem_read_alloc_entry_offset(smem_mem_type_t type, void *buf, int len, int offset)
+```
+
+此函数从第`type`个内存块的`offset`处拷贝`len`个字节到`buf`中
+
+## 8.2 内存解析
+
+此部分内容，主要位于platform/msm_shared/board.c中的，platform_detect中
+
+在第`SMEM_BOARD_INFO_LOCATION`内存中存放着board信息，以结构体保存在内存中，但结构体有如下几种格式
+
+```
+smem_board_info_v6
+smem_board_info_v7
+smem_board_info_v8
+smem_board_info_v9
+smem_board_info_v10
+smem_board_info_v11
+```
+
+其中第一个字标示了，格式的版本
+
+第一个字又分为高16bit、低16bit分别表示format\_major、format\_minor，当前format\_major等于0，format\_minor有6、7、8、9、10、11对应smem\_board\_info\_v6、smem\_board\_info\_v7……smem\_board\_info\_v11
+
+smem\_board\_info\_v6、smem\_board\_info\_v7……smem\_board\_info\_v11解析出来的信息保存到全局变量static struct board\_data board中。
+
+## 8.3 board信息获取
+
+在内存信息配置完后，`format_major`、`format_minor`、`board`被设置，这些信息封装后在platform/msm\_shared/board.c中被封装成函数，在platform/msm\_shared/include/board.h中被声明
+
+## 8.4 获取信息找到最合适的DT
+
+高通定义了一种方式打包多个DT，具体参见我写的[Device Tree分析](https://github.com/hardenedlinux/embedded-iot_profile/blob/master/docs/arm64/device-tree%E5%88%86%E6%9E%90.md)。在little kernel中需要根据dt_entry描述的信息，与board的信息对比找出合适的DT
+
+```c
+struct dt_entry          
+{
+    uint32_t platform_id;  
+    uint32_t variant_id;
+    uint32_t board_hw_subtype;
+    uint32_t soc_rev;              
+    uint32_t pmic_rev[4];          
+    uint32_t offset;       
+    uint32_t size;          
+};
+
+struct board_data {
+    uint32_t platform;
+    uint32_t foundry_id;
+    uint32_t chip_serial;
+    uint32_t platform_version;
+    uint32_t platform_hw;
+    uint32_t platform_subtype;
+    uint32_t target;
+    uint32_t baseband;
+    struct board_pmic_data pmic_info[MAX_PMIC_DEVICES];
+    uint32_t platform_hlos_subtype;
+    uint32_t num_pmics;
+    uint32_t pmic_array_offset;
+    struct board_pmic_data *pmic_info_array;
+};
+```
+
+匹配操作在`int dev_tree_get_entry_info(struct dt_table *table, struct dt_entry *dt_entry_info)`函数中完成。
 
 
