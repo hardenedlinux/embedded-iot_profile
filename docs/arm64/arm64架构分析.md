@@ -1,4 +1,4 @@
-#arm64架构分析
+# arm64架构分析
 
 此文分析基于arm官方文档
 
@@ -6,7 +6,7 @@
 
 [ARM Architecture Reference Manual Supplement ARMv8.1, for ARMv8-A architecture profile Errata markup](https://static.docs.arm.com/ddi0557/a/DDI0557A_b_armv8_1_supplement_errata.pdf)
 
-##指令集
+## 指令集
 
 1\. A64 64位ARM指令集，这里64位指数据处理能力即一条指令处理的数据宽度，指令编码使用定长32比特编码
 
@@ -14,7 +14,7 @@
 
 3\. T32 thumb指令集，32位指令（即一条指令可以处理32比特到数据），指令编码为16比特32比特混合编码（具有更高的指令密度，16比特指令可以访问的寄存器数受限，性能会低很多）
 
-##寄存器
+## 寄存器
 
 arm64有31通用寄存器X0-X30,可以作为32或64比特的寄存器，32比特时记为W0-W30，64比特时记为X0-X30。
 
@@ -38,7 +38,7 @@ CPSR（current program state register）非物理寄存器，是一组寄存器�
 - V , bit[28]    标记有符号数计算益处
 - Q , bit[27]    ???
 - J , bit[24]
-- T , bit[5] 
+- T , bit[5]
   - T和J配合用于确定32 位执行模式下的状态
     - {0,0} ARM状态
       - Thumb状态，执行thumb2指令
@@ -75,7 +75,7 @@ CPSR（current program state register）非物理寄存器，是一组寄存器�
       - 0 使用SP_EL0
       - 使用SP_ELx
 
-##异常等级（Exception Level）
+## 异常等级（Exception Level）
 
 异常等级是ARMv8引入到权限等级，ARMv8有4级异常等级EL0、EL1、EL2、EL3数值越大权限越大，具体芯片可以选择实现EL3、EL2
 
@@ -89,7 +89,7 @@ EL2用于Hypervisor
 
 EL3用于Secure monitor
 
-##执行状态（Execution State）
+## 执行状态（Execution State）
 
 ARMv8有两种执行状态：
 
@@ -160,7 +160,7 @@ ARMv8有两种执行状态：
 | 低异常等级AARCH64    | 0x400       | 0x480 | 0x500 | 0x580  |
 | 低异常等级AARCH32    | 0x600       | 0x680 | 0x700 | 0x780  |
 
-##内存管理
+## 内存管理
 
 ### 基本概念
 
@@ -332,4 +332,3 @@ POC指所有主控看到内存一致的存储器。一般为主存储器。
 #### POU
 
 指一个主控看到的内存一致的存储器。ARM一般把一级缓存分为数据缓存和指令缓存，所以一般的ARM芯片的POU指二级缓存，在没有二级缓存的芯片上就为主存储器。
-

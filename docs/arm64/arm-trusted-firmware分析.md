@@ -12,7 +12,7 @@ ARM Trusted Firmware实现了一个可信引导过程，并给操作系统提供
 认证参数`auth_param_desc_t`是由两个基本结构组成：类型`auth_param_type_desc_t`和数据`auth_param_data_desc_t`。
 
 并定义了两个宏用于快速实现一个类型和数据
-```
+```c
 #define AUTH_PARAM_TYPE_DESC(_type, _cookie) \
 	{ \
 		.type = _type, \
@@ -30,7 +30,7 @@ ARM Trusted Firmware实现了一个可信引导过程，并给操作系统提供
 此模块主要实现一个框架，并非具体实现。主要用于校验哈希和签名。
 
 此框架主要基于一个结构体，结构体定义如下:
-```
+```c
 typedef struct crypto_lib_desc_s {
 	const char *name;/* 名称， */
 
@@ -51,7 +51,7 @@ typedef struct crypto_lib_desc_s {
 ```
 
 通过`REGISTER_CRYPTO_LIB`宏实现一个名为`crypto_lib_desc`类型为`crypto_lib_desc_t`结构体。宏实现如下:
-```
+```c
 #define REGISTER_CRYPTO_LIB(_name, _init, _verify_signature, _verify_hash) \
 	const crypto_lib_desc_t crypto_lib_desc = { \
 		.name = _name, \
@@ -62,7 +62,7 @@ typedef struct crypto_lib_desc_s {
 ```
 
 此模块通过操作crypto_lib_desc变量，实现模块初始化、校验签名、校验哈希。函数声明如下：
-```
+```c
 /* 模块初始化 */
 void crypto_mod_init(void);
 
@@ -80,7 +80,7 @@ int crypto_mod_verify_hash(void *data_ptr, unsigned int data_len,
 此模块实现一个框架，并非具体实现。主要用于校验镜像完整性，以及从镜像中提取内容。
 
 镜像被分为以下几种类型
-```
+```c
 typedef enum img_type_enum {
 	IMG_RAW,			/* Binary image */
 	IMG_PLAT,			/* Platform specific format */
@@ -90,7 +90,7 @@ typedef enum img_type_enum {
 ```
 
 镜像解析器被包装成一个结构体，定义如下
-```
+```c
 typedef struct img_parser_lib_desc_s {
 	img_type_t img_type;   /* 镜像解析器操作的镜像的类型 */
 	const char *name;      /* 镜像解析器的名字 */
@@ -109,7 +109,7 @@ typedef struct img_parser_lib_desc_s {
 ```
 
 通过宏`REGISTER_IMG_PARSER_LIB`实现一个解析器，定义如下：
-```
+```c
 #define REGISTER_IMG_PARSER_LIB(_type, _name, _init, _check_int, _get_param) \
 	static const img_parser_lib_desc_t __img_parser_lib_desc_##_type \
 	__section(".img_parser_lib_descs") __used = { \
@@ -130,7 +130,7 @@ typedef struct img_parser_lib_desc_s {
 
 ## auth_mod
 auth_mod实现了一个校验镜像的模型，此模型通过结构体`auth_img_desc_t`描述。
-```
+```c
 typedef struct auth_img_desc_s {
 	/* 镜像的ID,标志是哪一个镜像 */
 	unsigned int img_id;
@@ -150,7 +150,7 @@ typedef struct auth_img_desc_s {
 ```
 
 并定义一个宏`REGISTER_COT`，用于注册`auth_img_desc_t`数组
-```
+```c
 #define REGISTER_COT(_cot) \
 	const auth_img_desc_t *const cot_desc_ptr = \
 			(const auth_img_desc_t *const)&_cot[0]; \
@@ -158,7 +158,7 @@ typedef struct auth_img_desc_s {
 ```
 
 `auth_mod_verify_img`通过`img_id`访问`cot_desc_ptr`数组，找到对应的镜像描述符`auth_method_desc_t`，即可知道当前镜像的认证方式，访问父节点找到签名的公钥或哈希，即可认证当前镜像是否合法。在认证完当前镜像后，从镜像中解析出公钥哈希等放入当前的镜像描述符中，便于对下一级镜像校验
-```
+```c
 int auth_mod_verify_img(unsigned int img_id,
 			void *img_ptr,
 			unsigned int img_len)
@@ -242,7 +242,7 @@ int auth_mod_verify_img(unsigned int img_id,
 ## 主要数据结构
 ### io_dev_info_t
 io_dev_info_t对应一个设备描述符
-```
+```c
 /* 设备操作相关的函数句柄 */
 typedef struct io_dev_funcs {
 	io_type_t (*type)(void);
@@ -267,7 +267,7 @@ typedef struct io_dev_info {
 
 ### io_entity_t
 io_entity_t对应一个文件描述符
-```
+```c
 typedef struct io_entity {
 	struct io_dev_info *dev_handle;/* 设备信息 */
 	uintptr_t info;/* 文件有关信息 */
@@ -276,7 +276,7 @@ typedef struct io_entity {
 
 ### io_dev_connector_t
 io_dev_connector_t对应一个驱动
-```
+```c
 typedef struct io_dev_connector {
 	/* dev_open opens a connection to a particular device driver */
 	int (*dev_open)(const uintptr_t dev_spec, io_dev_info_t **dev_info);
@@ -284,16 +284,16 @@ typedef struct io_dev_connector {
 ```
 
 ### 关联
-系统通过`dev_count`、`devices`，来维护一个注册的设备列表
-```
+系统通过**dev_count**、**devices**，来维护一个注册的设备列表
+```c
 /* 注册一个设备此变量加1 */
 static unsigned int dev_count;
 /* 指向设备的指针数组，注册的设备会被添加进来 */
 static const io_dev_info_t *devices[MAX_IO_DEVICES];
 ```
 
-系统通过`entity_pool`、`entity_map`、`entity_count`来维护已经打开的文件
-```
+系统通过**entity_pool**、**entity_map**、**entity_count**来维护已经打开的文件
+```c
 /* 实际的文件句柄 */
 static io_entity_t entity_pool[MAX_IO_HANDLES];
 
@@ -306,14 +306,14 @@ static unsigned int entity_count;
 
 ## 接口
 ### 打开设备
-```
+```c
 int io_dev_open(const struct io_dev_connector *dev_con,/* 驱动描述符 */
 		const uintptr_t dev_spec,/* 用于指定打开那个设备，与具体驱动有关 */
 		uintptr_t *dev_handle);/* 返回值：设备句柄（io_dev_info_t） */
 ```
 
 ### 设备初始化
-```
+```c
 /*
  * dev_handle设备句柄
  * init_params设备初始化的参数（特定设备相关）
@@ -322,12 +322,12 @@ int io_dev_init(uintptr_t dev_handle, const uintptr_t init_params);
 ```
 
 ### 关闭设备
-```
+```c
 int io_dev_close(uintptr_t dev_handle);
 ```
 
 ### 文件相关操作
-```
+```c
 /*
  * 打开文件
  * dev_handle设备句柄
@@ -375,6 +375,1051 @@ int io_write(uintptr_t handle, const uintptr_t buffer, size_t length,
 int io_close(uintptr_t handle);
 ```
 
+# EL3初始化
+
+EL3初始化通过宏**el3_entrypoint_common**实现，此宏位于`include/common/aarch64/el3_common_macros.S`中
+
+此宏有6个参数分别控制初始化的内容
+
+```assembly
+.macro el3_entrypoint_common					\
+		_set_endian, _warm_boot_mailbox, _secondary_cold_boot,	\
+		_init_memory, _init_c_runtime, _exception_vectors
+```
+
+## 大小端设置
+
+```assembly
+.if \_set_endian
+	/* sctlr_el3.ee = 0 EL3设置为小端 */
+	mrs	x0, sctlr_el3
+	bic	x0, x0, #SCTLR_EE_BIT
+	msr	sctlr_el3, x0
+	isb
+.endif
+```
+
+## 热启动处理
+此部分，用在热启动时跳过初始化代码
+```assembly
+.if \_warm_boot_mailbox
+	/* 冷启动返回0，
+	   热启动返回PLAT_ARM_TRUSTED_MAILBOX_BASE处的值 */
+	bl	plat_get_my_entrypoint
+	cbz	x0, do_cold_boot
+	/* 热启动跳转到PLAT_ARM_TRUSTED_MAILBOX_BASE内存处指定的地址继续执行 */
+	br	x0
+
+/* 冷启动继续执行 */
+do_cold_boot:
+.endif
+```
+
+## 次处理器处理
+
+为了便于处理，在初始化时会让其他处理器暂停（执行while循环）
+
+```assembly
+.if \_secondary_cold_boot
+	bl	plat_is_my_cpu_primary		/* 判断当前CPU是不是主CPU */
+	cbnz	w0, do_primary_cold_boot
+
+	/* 非主CPU暂停，
+	   循环等待PLAT_ARM_TRUSTED_MAILBOX_BASE出出现地址，跳转 */
+	bl	plat_secondary_cold_boot_setup
+	/* 此处不会执行 */
+	bl	el3_panic
+
+/* 主处理器继续 */
+do_primary_cold_boot:
+.endif
+```
+
+## 内存初始化
+
+此部分与具体硬件相关，需要具体平台实现**void platform_mem_init(void)**
+
+```assembly
+.if \_init_memory
+	bl	platform_mem_init
+.endif 
+```
+
+## C运行环境初始化
+
+```assembly
+	.if \_init_c_runtime
+#ifdef IMAGE_BL31
+		/* 初始化cache */
+		adr	x0, __RW_START__
+		adr	x1, __RW_END__
+		sub	x1, x1, x0
+		bl	inv_dcache_range
+#endif /* IMAGE_BL31 */
+
+		/* bss内存初始化为0 */
+		ldr	x0, =__BSS_START__
+		ldr	x1, =__BSS_SIZE__
+		bl	zeromem16
+
+#if USE_COHERENT_MEM
+		/* 多个内核共享的内存，初始化为0 */
+		ldr	x0, =__COHERENT_RAM_START__
+		ldr	x1, =__COHERENT_RAM_UNALIGNED_SIZE__
+		bl	zeromem16
+#endif
+
+#ifdef IMAGE_BL1
+		/* data段初始化 */
+		ldr	x0, =__DATA_RAM_START__
+		ldr	x1, =__DATA_ROM_START__
+		ldr	x2, =__DATA_SIZE__
+		bl	memcpy16
+#endif
+	.endif
+```
+
+## 栈初始化
+
+使用SP_EL0作为C语言的堆栈指针，此处有单内核堆栈初始化与多内核堆栈初始化，这里只关注多内核堆栈初始化。这样每个内核会获取到一个不同的堆栈指针。
+
+```assembly
+msr	spsel, #0 /* 切换当前SP指针为SP_EL0 */
+bl	plat_set_my_stack
+
+func plat_set_my_stack
+	mov	x9, x30 /* 保护LR下面要调用函数 */
+	bl 	plat_get_my_stack
+	mov	sp, x0/* 修改SP */
+	ret	x9/* 返回 */
+endfunc plat_set_my_stack
+
+func plat_get_my_stack
+	mrs	x0, mpidr_el1 /* 读取CPU标示 */
+	b	platform_get_stack
+endfunc plat_get_my_stack
+
+func plat_get_my_stack
+	mov	x10, x30 /* 保护LR下面要调用函数 */
+	get_my_mp_stack platform_normal_stacks, PLATFORM_STACK_SIZE
+	ret	x10/* 返回 */
+endfunc plat_get_my_stack
+
+/* 
+ * _name为栈顶地址
+ * _size一个内核的栈的大小
+ * 栈地址 = 栈顶地址 + （内核编号 + 1）* 单个内核栈大小
+ */
+.macro get_my_mp_stack _name, _size
+	bl  plat_my_core_pos /* 获取处理器编号 */
+	ldr x2, =(\_name + \_size)/* 起始地址，栈向低地址增长 */
+	mov x1, #\_size /* 一个内核栈的大小 */
+	madd x0, x0, x1, x2 /* x0=x0*x1+x2 */
+.endm
+```
+
+## 异常向量初始化
+
+```assembly
+	/* 使能指令缓存、对齐检查 初始化异常向量 */
+	el3_arch_init_common \_exception_vectors
+	
+.macro el3_arch_init_common _exception_vectors
+	/* 使能指令缓存、对齐检查 */
+	mov	x1, #(SCTLR_I_BIT | SCTLR_A_BIT | SCTLR_SA_BIT)
+	mrs	x0, sctlr_el3
+	orr	x0, x0, x1
+	msr	sctlr_el3, x0
+	isb
+
+#ifdef IMAGE_BL31
+
+	bl	init_cpu_data_ptr
+#endif /* IMAGE_BL31 */
+
+	/* 异常向量设置 */
+	adr	x0, \_exception_vectors
+	msr	vbar_el3, x0
+	isb
+	
+	/* 不允许从非安全存储器获取安全状态指令
+       外部中止和SError路由到EL3*/
+	mov	x0, #(SCR_RES1_BITS | SCR_EA_BIT | SCR_SIF_BIT)
+	msr	scr_el3, x0
+
+	/* 复位mdcr_el3寄存器 */
+	msr	mdcr_el3, xzr
+
+	/* 使能外部中止和SError异常 */
+	msr	daifclr, #DAIF_ABT_BIT
+
+	/* ---------------------------------------------------------------------
+	 * The initial state of the Architectural feature trap register
+	 * (CPTR_EL3) is unknown and it must be set to a known state. All
+	 * feature traps are disabled. Some bits in this register are marked as
+	 * reserved and should not be modified.
+	 *
+	 * CPTR_EL3.TCPAC: This causes a direct access to the CPACR_EL1 from EL1
+	 *  or the CPTR_EL2 from EL2 to trap to EL3 unless it is trapped at EL2.
+	 *
+	 * CPTR_EL3.TTA: This causes access to the Trace functionality to trap
+	 *  to EL3 when executed from EL0, EL1, EL2, or EL3. If system register
+	 *  access to trace functionality is not supported, this bit is RES0.
+	 *
+	 * CPTR_EL3.TFP: This causes instructions that access the registers
+	 *  associated with Floating Point and Advanced SIMD execution to trap
+	 *  to EL3 when executed from any exception level, unless trapped to EL1
+	 *  or EL2.
+	 * ---------------------------------------------------------------------
+	 */
+	mrs	x0, cptr_el3
+	bic	w0, w0, #TCPAC_BIT
+	bic	w0, w0, #TTA_BIT
+	bic	w0, w0, #TFP_BIT
+	msr	cptr_el3, x0
+.endm
+```
+# CPU数据
+
+每个处理器有私有的数据
+
+## 数据结构
+
+其中保存了上下文信息、电源管理信息等
+
+```c
+typedef struct cpu_data {
+#ifndef AARCH32
+	void *cpu_context[2];/* cpu的上下文，根据security state分为两部分 */
+#endif
+	uintptr_t cpu_ops_ptr;/* 指针，执行的结构存放cpu操作的函数以及cpu的MIDR（cpu编号） */
+#if CRASH_REPORTING/* 崩溃信息 */
+	u_register_t crash_buf[CPU_DATA_CRASH_BUF_SIZE >> 3];
+#endif
+#if ENABLE_RUNTIME_INSTRUMENTATION/* PMF服务相关 */
+	uint64_t cpu_data_pmf_ts[CPU_DATA_PMF_TS_COUNT];
+#endif
+	struct psci_cpu_data psci_svc_cpu_data;/* cpu电源管理状态 */
+#if PLAT_PCPU_DATA_SIZE/* 平台特定数据 */
+	uint8_t platform_cpu_data[PLAT_PCPU_DATA_SIZE];
+#endif
+} __aligned(CACHE_WRITEBACK_GRANULE) cpu_data_t;
+```
+
+## 初始化
+
+每个cpu有一个**cpu_data_t**的数据，定义在`lib/el3_runtime/aarch64/cpu_data_array.c`中
+
+```
+cpu_data_t percpu_data[PLATFORM_CORE_COUNT];
+```
+
+为了便于cpu访问到自己的数据通过**TPIDR_EL3**指向自己的**cpu_data_t**，初始化过程如下
+
+```assembly
+func init_cpu_data_ptr
+	mov	x10, x30 /* 保存lr便于下面调用函数 */
+	bl	plat_my_core_pos /* 获取cpu的编号 */
+	bl	_cpu_data_by_index/* 通过cpu编号获取cpu_data_t结构 */
+	msr	tpidr_el3, x0
+	ret	x10
+endfunc init_cpu_data_ptr
+
+func _cpu_data_by_index
+	adr	x1, percpu_data
+	add	x0, x1, x0, LSL #CPU_DATA_LOG2SIZE 
+	ret
+endfunc _cpu_data_by_index
+```
+
+## 访问CPU数据
+
+通过读取**TPIDR_EL3**获取**cpu_data_t**
+
+```c
+static inline struct cpu_data *_cpu_data(void)
+{
+	return (cpu_data_t *)read_tpidr_el3();
+}
+```
+
+# 中断现场保存恢复
+
+## 单处理器相关
+
+此部分代码位于`lib/el3_runtime/aarch64/context.S`中，声明在`include/lib/el3_runtime/aarch64/context.h`
+
+`include/lib/el3_runtime/aarch64/context.h`声明了现场保护结构体（寄存器保存在内存中的结构），以及各个寄存器在现场保护结构体中的偏移量（在汇编程序中有效），并且声明了一些C语言访问现场抱回结构的方法
+
+**DEFINE_REG_STRUCT**用于定义一组寄存器，**name**寄存器组的名字，**num_regs**为寄存器的个数
+
+```c
+#define DEFINE_REG_STRUCT(name, num_regs)	\
+	typedef struct name {			\
+		uint64_t _regs[num_regs];	\
+	}  __aligned(16) name##_t
+```
+
+现场保护结构定义如下
+
+```c
+/* 声明一些寄存器组 */
+DEFINE_REG_STRUCT(gp_regs, CTX_GPREG_ALL);
+DEFINE_REG_STRUCT(el1_sys_regs, CTX_SYSREG_ALL);
+#if CTX_INCLUDE_FPREGS
+DEFINE_REG_STRUCT(fp_regs, CTX_FPREG_ALL);
+#endif
+DEFINE_REG_STRUCT(el3_state, CTX_EL3STATE_ALL);
+
+/* 现场保护结构体 */
+typedef struct cpu_context {
+	gp_regs_t gpregs_ctx;/* 通用寄存器组 */
+	el3_state_t el3state_ctx;/* 状态寄存器组 */
+	el1_sys_regs_t sysregs_ctx;/* 系统寄存器组 */
+#if CTX_INCLUDE_FPREGS
+	fp_regs_t fpregs_ctx;/* 浮点寄存器组 */
+#endif
+} cpu_context_t;
+```
+
+为了方便访问现场保护结构体中的一组寄存器，特别定义如下宏
+
+```c
+#define get_el3state_ctx(h)	(&((cpu_context_t *) h)->el3state_ctx)
+#if CTX_INCLUDE_FPREGS
+#define get_fpregs_ctx(h)	(&((cpu_context_t *) h)->fpregs_ctx)
+#endif
+#define get_sysregs_ctx(h)	(&((cpu_context_t *) h)->sysregs_ctx)
+#define get_gpregs_ctx(h)	(&((cpu_context_t *) h)->gpregs_ctx)
+```
+
+为了便于访问寄存器组的寄存器，特别定义如下宏用于读写寄存器
+
+```c
+#define read_ctx_reg(ctx, offset)	((ctx)->_regs[offset >> DWORD_SHIFT])
+#define write_ctx_reg(ctx, offset, val)	(((ctx)->_regs[offset >> DWORD_SHIFT]) = val)
+```
+
+`context.S`文件中通过汇编实现了8个函数，用于现场保护还原。下面是这8个函数的C语言声明
+
+```c
+/* 保存系统寄存器到regs中 */
+void el1_sysregs_context_save(el1_sys_regs_t* regs);
+
+/* 从regs中恢复系统寄存器 */
+void el1_sysregs_context_restore(el1_sys_regs_t *regs);
+
+/* 保存浮点寄存器到regs中 */
+void fpregs_context_save(fp_regs_t *regs);
+
+/* 从regs中恢复浮点寄存器 */
+void fpregs_context_restore(fp_regs_t *regs);
+
+/* 保存X0-X29、SP_EL0到堆栈
+   X30需要在CALL此函数前保存，CALL指令会修改X30 */
+void save_gp_registers(void);
+
+/* 从堆栈中恢复X0-X30、SP_EL0并退出异常 */
+void restore_gp_registers_eret(void);
+
+/* 从堆栈中恢复X4-X30、SP_EL0并退出异常
+   此函数在特定情况下有效（SMC调用通过X0-X3返回调用结果） 
+   但此函数实际应用较少，程序会通过访问现场保护的指针修改X0-X4 */
+void restore_gp_registers_callee_eret(void)
+```
+## 多处理器相关
+
+中断现场保护通过**SP_EL3**完成，但每个处理器需要分别初始化自己的**SP_EL3**。这部分在异常退出之前（引导下一级代码之前）通过设置**SP_EL3**完成，这样每个处理器发生中断时就有了独立的**上下文（context）**，具体通过**cm_set_next_context**函数实现
+
+```c
+static inline void cm_set_next_context(void *context)
+{
+#if DEBUG
+  	/* 调试代码
+  	   用于确定当前使用的是SP_EL0
+  	   C语言运行环境使用的是SP_EL0 */
+	uint64_t sp_mode;
+	__asm__ volatile("mrs	%0, SPSel\n"
+			 : "=r" (sp_mode));
+
+	assert(sp_mode == MODE_SP_EL0);
+#endif
+	/* 切换到SP_EL3赋值后，修改为SP_EL0 */
+	__asm__ volatile("msr	spsel, #1\n"
+			 "mov	sp, %0\n"
+			 "msr	spsel, #0\n"
+			 : : "r" (context));
+}
+```
+
+为了实现在**Secure Word**、**Non-Secure Word**之间切换，每个处理器有两个上下文。
+
+```c
+#define get_cpu_data(_m)		_cpu_data()->_m
+#define set_cpu_data(_m, _v)	_cpu_data()->_m = _v
+
+/* 获取当前安全状态下的上下文 */
+void *cm_get_context(uint32_t security_state)
+{
+	assert(security_state <= NON_SECURE);
+	return get_cpu_data(cpu_context[security_state]);
+}
+
+/* 设置当前安全状态下的上下文 */
+void cm_set_context(void *context, uint32_t security_state)
+{
+	assert(security_state <= NON_SECURE);
+	set_cpu_data(cpu_context[security_state], context);
+}
+```
+
+# 加载镜像
+
+镜像加载通过**load_auth_image**函数实现，并实现对镜像的认证
+
+```c
+int load_auth_image(meminfo_t *mem_layout,
+		    unsigned int image_id,
+		    uintptr_t image_base,
+		    image_info_t *image_data,
+		    entry_point_info_t *entry_point_info)
+{
+  	/* 实际的加载方法 */
+	return load_auth_image_internal(mem_layout, image_id, image_base,
+					image_data, entry_point_info, 0);
+}
+```
+
+具体实现通过**load_auth_image_internal**实现
+
+```c
+static int load_auth_image_internal(meminfo_t *mem_layout,
+				    unsigned int image_id,
+				    uintptr_t image_base,
+				    image_info_t *image_data,
+				    entry_point_info_t *entry_point_info,
+				    int is_parent_image)
+{
+	int rc;
+
+/* 可信加载要先加载父镜像，这样才能校验下一级镜像 */
+#if TRUSTED_BOARD_BOOT
+	unsigned int parent_id;
+
+	/* 获取父镜像id */
+	rc = auth_mod_get_parent_id(image_id, &parent_id);
+	if (rc == 0) {
+		/* 递归，现加载认真父镜像 */
+		rc = load_auth_image_internal(mem_layout, parent_id, image_base,
+				     image_data, NULL, 1);
+		if (rc != 0) {/* 出错直接退出 */
+			return rc;
+		}
+	}
+#endif /* TRUSTED_BOARD_BOOT */
+
+	/* 镜像加载到内存，更新entry_point_info image_data */
+	rc = load_image(mem_layout, image_id, image_base, image_data,
+			entry_point_info);
+	if (rc != 0) {
+		return rc;
+	}
+
+#if TRUSTED_BOARD_BOOT
+	/* 认证镜像 */
+	rc = auth_mod_verify_img(image_id,
+				 (void *)image_data->image_base,
+				 image_data->image_size);
+	if (rc != 0) {
+		/* 镜像认证失败，清除加载的内容防止执行未认证的内容 */
+		memset((void *)image_data->image_base, 0x00,
+		       image_data->image_size);
+		flush_dcache_range(image_data->image_base,
+				   image_data->image_size);
+		return -EAUTH;
+	}
+	/* 镜像加载认证成功，将镜像同步到主存储器，以便每个cpu都可以执行
+	 * 不需要同步父镜像，应为只有当前镜像需要执行
+	 */
+	if (!is_parent_image) {
+		flush_dcache_range(image_data->image_base,
+				   image_data->image_size);
+	}
+#endif /* TRUSTED_BOARD_BOOT */
+
+	return 0;
+}
+```
+
+# 镜像认证
+
+## 镜像认证描述符
+
+认证描述符为**auth_img_desc_t**，结构体。
+
+```c
+typedef struct auth_img_desc_s {
+	/* 镜像的ID,标志是哪一个镜像 */
+	unsigned int img_id;
+
+	/* 镜像类型(Binary、证书等) */
+	img_type_t img_type;
+
+	/* 父镜像，保存了认证当前镜像的公钥、哈希等 */
+	const struct auth_img_desc_s *parent;
+
+	/* 认证当前镜像的方法 */
+	auth_method_desc_t img_auth_methods[AUTH_METHOD_NUM];
+
+	/* 用于校验子镜像的公钥、哈希等 */
+	auth_param_desc_t authenticated_data[COT_MAX_VERIFIED_PARAMS];
+} auth_img_desc_t;
+```
+
+系统通过一个数组记录每个镜像的认证方式，并且通过镜像id获取对应镜像的认证方式
+
+## 认证方法
+
+**auth_mod_verify_img**根据镜像描述符描述的认证方式对镜像进行校验认证
+
+```c
+
+int auth_mod_verify_img(unsigned int img_id,
+			void *img_ptr,
+			unsigned int img_len)
+{
+	const auth_img_desc_t *img_desc = NULL;
+	const auth_method_desc_t *auth_method = NULL;
+	void *param_ptr;
+	unsigned int param_len;
+	int rc, i;
+
+	/* 根据img_id获取镜像描述符 */
+	img_desc = &cot_desc_ptr[img_id];
+
+	/* 校验镜像完整性 */
+	rc = img_parser_check_integrity(img_desc->img_type, img_ptr, img_len);
+	return_if_error(rc);
+
+	/* 根据镜像描述符的仍正方式对镜像进行认证 */
+	for (i = 0 ; i < AUTH_METHOD_NUM ; i++) {
+		auth_method = &img_desc->img_auth_methods[i];
+		switch (auth_method->type) {
+		case AUTH_METHOD_NONE:/* 不需要认证 */
+			rc = 0;
+			break;
+		case AUTH_METHOD_HASH:/* 哈希认证 */
+			rc = auth_hash(&auth_method->param.hash,
+					img_desc, img_ptr, img_len);
+			break;
+		case AUTH_METHOD_SIG:/* 签名认证 */
+			rc = auth_signature(&auth_method->param.sig,
+					img_desc, img_ptr, img_len);
+			break;
+		case AUTH_METHOD_NV_CTR:/* Non-Volatile counter认证？ */
+			rc = auth_nvctr(&auth_method->param.nv_ctr,
+					img_desc, img_ptr, img_len);
+			break;
+		default:
+			/* 未知认证类型，报错 */
+			rc = 1;
+			break;
+		}
+		return_if_error(rc);
+	}
+
+	/* 从镜像中解析出公钥哈希等，以便对下一级镜像进行认证 */
+	for (i = 0 ; i < COT_MAX_VERIFIED_PARAMS ; i++) {
+		if (img_desc->authenticated_data[i].type_desc == NULL) {
+			continue;
+		}
+
+		/* 通过镜像解析器从镜像中提取内容 */
+		rc = img_parser_get_auth_param(img_desc->img_type,
+				img_desc->authenticated_data[i].type_desc,
+				img_ptr, img_len, &param_ptr, &param_len);
+		return_if_error(rc);
+
+		/* 异常检查
+		   防止从镜像中解析出的数据字节数大于镜像描述符中的字节数
+		   出现内存访问溢出 */
+		if (param_len > img_desc->authenticated_data[i].data.len) {
+			return 1;
+		}
+
+		/* 把解析出的内容拷贝到镜像描述符中，便于解析下一级BL */
+		memcpy((void *)img_desc->authenticated_data[i].data.ptr,
+				(void *)param_ptr, param_len);
+	}
+
+	/* 标记镜像以认证过 */
+	auth_img_flags[img_desc->img_id] |= IMG_FLAG_AUTHENTICATED;
+
+	return 0;
+}
+```
+
+
+
+# 执行镜像
+
+## 执行环境
+
+执行环境，用于初始化**上下文**。此结构一般在加载镜像时初始化，通过系统定义的或链接器导出的符号初始化。
+
+```c
+/* 结构体的一个标记，用于校验和错误检测 */
+typedef struct param_header {
+	uint8_t type;		/* 结构体类型 */
+	uint8_t version;    /* 版本信息 */
+	uint16_t size;      /* 结构体大小 */
+	uint32_t attr;      /* 附加属性，第0比特标记是否为secure */
+} param_header_t;
+
+/* 用于向镜像传递参数 */
+typedef struct aapcs32_params {
+	u_register_t arg0;
+	u_register_t arg1;
+	u_register_t arg2;
+	u_register_t arg3;
+} aapcs32_params_t;
+
+/* 用于向镜像传递参数 */
+typedef struct aapcs64_params {
+	u_register_t arg0;
+	u_register_t arg1;
+	u_register_t arg2;
+	u_register_t arg3;
+	u_register_t arg4;
+	u_register_t arg5;
+	u_register_t arg6;
+	u_register_t arg7;
+} aapcs64_params_t;
+
+/* 执行环境结构体 */
+typedef struct entry_point_info {
+	param_header_t h;
+	uintptr_t pc;/* 镜像加载在内存中的位置 */
+	uint32_t spsr;/* 程序状态字（决定异常等级） */
+#ifdef AARCH32
+	aapcs32_params_t args;/* 用于向镜像传递参数 */
+#else
+	aapcs64_params_t args;/* 用于向镜像传递参数 */
+#endif
+} entry_point_info_t;
+```
+
+## 通过异常退出执行下一级BL
+
+这种方式下，上一级BL可以为下一级BL提供服务。主要通过两个函数实现
+
+```c
+/* 初始化当前处理器的上下文 */
+void cm_init_my_context(const entry_point_info_t *ep)
+{
+	cpu_context_t *ctx;
+    /* 根据secure的状态获取上下文 */
+	ctx = cm_get_context(GET_SECURITY_STATE(ep->h.attr));
+    /* 根据执行环境初始化上下文 */
+	cm_init_context_common(ctx, ep);
+}
+
+/* 为异常退出作准备 */
+void cm_prepare_el3_exit(uint32_t security_state)
+{
+	uint32_t sctlr_elx, scr_el3, cptr_el2;
+    
+    /* 根据secure的状态获取上下文 */
+	cpu_context_t *ctx = cm_get_context(security_state);
+
+	assert(ctx);
+	/* 设置一些控制寄存器，为异常退出作准备 */
+	if (security_state == NON_SECURE) {
+		scr_el3 = read_ctx_reg(get_el3state_ctx(ctx), CTX_SCR_EL3);
+		if (scr_el3 & SCR_HCE_BIT) {
+			/* Use SCTLR_EL1.EE value to initialise sctlr_el2 */
+			sctlr_elx = read_ctx_reg(get_sysregs_ctx(ctx),
+						 CTX_SCTLR_EL1);
+			sctlr_elx &= ~SCTLR_EE_BIT;
+			sctlr_elx |= SCTLR_EL2_RES1;
+			write_sctlr_el2(sctlr_elx);
+		} else if (read_id_aa64pfr0_el1()
+                   & (ID_AA64PFR0_ELX_MASK << ID_AA64PFR0_EL2_SHIFT)) {
+			write_hcr_el2((scr_el3 & SCR_RW_BIT) ? HCR_RW_BIT : 0);
+			cptr_el2 = read_cptr_el2();
+			cptr_el2 &= ~(TCPAC_BIT | TTA_BIT | TFP_BIT);
+			write_cptr_el2(cptr_el2);
+			write_cnthctl_el2(EL1PCEN_BIT | EL1PCTEN_BIT);
+			write_cntvoff_el2(0);
+			write_vpidr_el2(read_midr_el1());
+			write_vmpidr_el2(read_mpidr_el1());
+			write_vttbr_el2(0);
+			write_mdcr_el2((read_pmcr_el0() & PMCR_EL0_N_BITS)>> PMCR_EL0_N_SHIFT);
+			write_hstr_el2(0);
+			write_cnthp_ctl_el2(0);
+		}
+	}
+	
+    /* 从上下文恢复系统寄存器 */
+	el1_sysregs_context_restore(get_sysregs_ctx(ctx));
+
+  	/* 切换使用SP_EL3，并指向上下文 */
+	cm_set_next_context(ctx);
+}
+```
+
+异常退出通过，汇编函数实现
+
+```assembly
+func el3_exit
+    /* 保存SP_EL0到上下文中 */
+	mov	x17, sp
+	msr	spsel, #1
+	str	x17, [sp, #CTX_EL3STATE_OFFSET + CTX_RUNTIME_SP]
+
+	/* 
+	 * 从上下文恢复SCR_EL3、SPSR_EL3、ELR_EL3
+	 * SCR_EL3  : security state有关
+	 * SPSR_EL3 : 异常等级相关
+	 * ELR_EL3  : 异常返回地址
+     */
+	ldr	x18, [sp, #CTX_EL3STATE_OFFSET + CTX_SCR_EL3]
+	ldp	x16, x17, [sp, #CTX_EL3STATE_OFFSET + CTX_SPSR_EL3]
+	msr	scr_el3, x18
+	msr	spsr_el3, x16
+	msr	elr_el3, x17
+
+	/* 从上下文恢复通用寄存器 */
+	b	restore_gp_registers_eret
+endfunc el3_exit
+```
+
+## 通过SMC执行下一级BL
+
+这是BL1给BL2提供的中断服务，用于加载程序到EL3
+
+```assembly
+func smc_handler64
+
+	/* 确定是BL1_SMC_RUN_IMAGE调用 */
+	mov	x30, #BL1_SMC_RUN_IMAGE
+	cmp	x30, x0
+	b.ne	smc_handler/* 其他SMC调用 */
+
+	/* 确定在secure world执行SMC调用 */
+	mrs	x30, scr_el3
+	tst	x30, #SCR_NS_BIT
+	b.ne	unexpected_sync_exception/* Non-Secure调用BL1_SMC_RUN_IMAGE */
+	
+	/* 从上下文恢复C运行环境堆栈 */
+	ldr	x30, [sp, #CTX_EL3STATE_OFFSET + CTX_RUNTIME_SP]
+	msr	spsel, #0
+	mov	sp, x30
+
+	/* X1执行执行环境 */
+	mov	x20, x1
+	mov	x0, x20
+	bl	bl1_print_next_bl_ep_info/* 打印执行环境 */
+
+	ldp	x0, x1, [x20, #ENTRY_POINT_INFO_PC_OFFSET]
+	msr	elr_el3, x0/* 修改返回地址，用来在异常退出时执行指定的镜像文件 */
+	msr	spsr_el3, x1/* 修改返回的cpsr,可以修改异常等级 */
+	ubfx	x0, x1, #MODE_EL_SHIFT, #2
+	cmp	x0, #MODE_EL3/* 执行的镜像必须为EL3，为后面的代码放开权限 */
+	b.ne	unexpected_sync_exception
+
+	bl	disable_mmu_icache_el3 /* 关闭指令cache */
+	tlbi	alle3
+
+/* 用于打印一些调试信息 */
+#if SPIN_ON_BL1_EXIT
+	bl	print_debug_loop_message
+debug_loop:
+	b	debug_loop
+#endif
+
+	mov	x0, x20
+	bl	bl1_plat_prepare_exit/* 为异常退出准备调节 */
+	/* 从x1指定的结构体中获取参数，并退出异常 */
+	ldp	x6, x7, [x20, #(ENTRY_POINT_INFO_ARGS_OFFSET + 0x30)]
+	ldp	x4, x5, [x20, #(ENTRY_POINT_INFO_ARGS_OFFSET + 0x20)]
+	ldp	x2, x3, [x20, #(ENTRY_POINT_INFO_ARGS_OFFSET + 0x10)]
+	ldp	x0, x1, [x20, #(ENTRY_POINT_INFO_ARGS_OFFSET + 0x0)]
+	eret
+endfunc smc_handler64
+```
+
+此服务在BL2中使用
+
+```c
+/*
+ * smc用于触发一条SMC调用，参数对应X0-X7
+ * X0标记服务
+ * X1执行环境结构体指针
+ */
+smc(BL1_SMC_RUN_IMAGE, (unsigned long)next_bl_ep_info, 0, 0, 0, 0, 0, 0);
+```
+
+# SMC服务框架
+
+SMC调用通过W0标示当前调用的类型。W0根据如下方式标记调用类型
+
+```
+W0用于确定调用的功能
+b31    调用类型 1->Fast Call 0->Yielding Call
+b30    标示32bit还是64bit调用
+b29:24 服务类型
+        0x0        ARM架构相关
+        0x1        CPU服务
+        0x2        SiP服务
+        0x3        OEM服务
+        0x4        标准安全服务
+        0x5        标准Hypervisor服务
+        0x6        厂商定制的Hypervisor服务
+        0x07-0x2f  预留
+        0x30-0x31  Trusted Application Calls
+        0x32-0x3f  Trusted OS Calls
+b23:16 在Fast Call时这些比特位必须为0，其他值保留未用
+       ARMv7传统的Trusted OS在Fast Call时必须为1
+b15:0  函数号
+```
+
+## SMC数据结构
+
+SMC服务通过结构体描述
+
+```C
+typedef struct rt_svc_desc {
+  	/* start_oen-end_oen 对应W0 b29:24中的一个片段 */
+	uint8_t start_oen;     /* 当前服务可以处理的SMC调用编号的起始编号 */
+	uint8_t end_oen;       /* 当前服务可以处理的SMC调用编号的结束编号 */
+	uint8_t call_type;     /* 调用的类型，对应W0 b30 */
+	const char *name;      /* 名字 */
+	rt_svc_init_t init;    /* 服务初始化函数 */
+	rt_svc_handle_t handle;/* 服务句柄 */
+} rt_svc_desc_t;
+```
+
+通过**DECLARE_RT_SVC**的宏声明一个SMC服务，服务被放在**rt_svc_descs**段中，并在链接脚本中指定**rt_svc_descs**的起始结束符号（**\_\_RT\_SVC\_DESCS\_START\_\_**/**\_\_RT\_SVC\_DESCS\_END\_\_**）
+
+```c
+#define DECLARE_RT_SVC(_name, _start, _end, _type, _setup, _smch) \
+	static const rt_svc_desc_t __svc_desc_ ## _name \
+		__section("rt_svc_descs") __used = { \
+			.start_oen = _start, \
+			.end_oen = _end, \
+			.call_type = _type, \
+			.name = #_name, \
+			.init = _setup, \
+			.handle = _smch }
+```
+
+通过如上结构，构建了一个可扩展的SMC服务框架
+
+## SMC服务初始化构建索引
+
+每个服务需要初始化（**rt_svc_desc_t.init**），而且链接后所有的服务形成一个数组被放在**\_\_RT\_SVC\_DESCS\_START\_\_**和**\_\_RT\_SVC\_DESCS\_END\_\_**符号之间，需要建立一个索引通过服务号找到对应的**rt_svc_desc_t**
+
+```c
+void runtime_svc_init(void)
+{
+	int rc = 0, index, start_idx, end_idx;
+
+	/* 异常检查 */
+	assert((RT_SVC_DESCS_END >= RT_SVC_DESCS_START) &&
+			(RT_SVC_DECS_NUM < MAX_RT_SVCS));
+
+	/* 没有系统服务退出 */
+	if (RT_SVC_DECS_NUM == 0)
+		return;
+
+	/* 初始化索引*/
+	memset(rt_svc_descs_indices, -1, sizeof(rt_svc_descs_indices));
+
+    /* 遍历所有的SMC服务 */
+    rt_svc_descs = (rt_svc_desc_t *) RT_SVC_DESCS_START;
+	for (index = 0; index < RT_SVC_DECS_NUM; index++) {
+		rt_svc_desc_t *service = &rt_svc_descs[index];
+
+      	/* 检查SMC服务是否合法 */
+		rc = validate_rt_svc_desc(service);
+		if (rc) {
+			ERROR("Invalid runtime service descriptor %p\n",
+				(void *) service);
+			panic();
+		}
+
+		/*
+		 * 调用初始话函数
+		 */
+		if (service->init) {
+			rc = service->init();
+			if (rc) {
+				ERROR("Error initializing runtime service %s\n",
+						service->name);
+				continue;
+			}
+		}
+
+		/*
+		 * 构建索引
+		 * 通过调用类型和服务类型查找服务在rt_svc_descs中的下标
+		 */
+		start_idx = get_unique_oen(rt_svc_descs[index].start_oen,
+				service->call_type);
+		assert(start_idx < MAX_RT_SVCS);
+		end_idx = get_unique_oen(rt_svc_descs[index].end_oen,
+				service->call_type);
+		assert(end_idx < MAX_RT_SVCS);
+		for (; start_idx <= end_idx; start_idx++)
+			rt_svc_descs_indices[start_idx] = index;
+	}
+}
+```
+## SMC中断服务
+
+通过初始化构建的索引找到对应的服务，执行**rt_svc_desc_t.handle**
+
+```assembly
+     /* 同步异常处理只处理smc相关的调用 */
+	.macro	handle_sync_exception
+	/* 使能SError中断 */
+	msr	daifclr, #DAIF_ABT_BIT
+
+	/* 保存x30，下面要使用X30作中间变量分析异常来源 */
+	str	x30, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_LR]
+
+#if ENABLE_RUNTIME_INSTRUMENTATION
+	/*
+	 * Read the timestamp value and store it in per-cpu data. The value
+	 * will be extracted from per-cpu data by the C level SMC handler and
+	 * saved to the PMF timestamp region.
+	 */
+	mrs	x30, cntpct_el0/* 时钟 */
+	str	x29, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_X29]
+	mrs	x29, tpidr_el3 /* tpidr_el3指向cpu_data */
+	str	x30, [x29, #CPU_DATA_PMF_TS0_OFFSET]
+	ldr	x29, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_X29]
+#endif
+	/* 获取异常代码 */
+	mrs	x30, esr_el3
+	ubfx	x30, x30, #ESR_EC_SHIFT, #ESR_EC_LENGTH
+
+	cmp	x30, #EC_AARCH32_SMC
+	b.eq	smc_handler32 /* 32bit SMC调用 */
+
+	cmp	x30, #EC_AARCH64_SMC
+	b.eq	smc_handler64 /* 64bit SMC调用 */
+
+	no_ret	report_unhandled_exception/* 不处理其他的同步异常 */
+	.endm
+```
+
+
+
+```assembly
+smc_handler64:
+	/*
+	 * Populate the parameters for the SMC handler.
+	 * We already have x0-x4 in place. x5 will point to a cookie (not used
+	 * now). x6 will point to the context structure (SP_EL3) and x7 will
+	 * contain flags we need to pass to the handler Hence save x5-x7.
+	 *
+	 * Note: x4 only needs to be preserved for AArch32 callers but we do it
+	 *       for AArch64 callers as well for convenience
+	 */
+	stp	x4, x5, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_X4]
+	stp	x6, x7, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_X6]
+
+	/* Save rest of the gpregs and sp_el0*/
+	save_x18_to_x29_sp_el0
+
+	mov	x5, xzr
+	mov	x6, sp
+
+	/* Get the unique owning entity number */
+    /* X0用于确定调用的功能
+     * b31    调用类型 1->Fast Call 0->Yielding Call
+     * b30    标示32bit还是64bit调用
+     * b29:24 服务类型
+     *           0x0  ARM架构相关
+     *           0x1  CPU服务
+     *           0x2  SiP服务
+     *           0x3  OEM服务
+     *           0x4  标准安全服务
+     *           0x5  标准Hypervisor服务
+     *           0x6  厂商定制的Hypervisor服务
+     *     0x07-0x2f  预留
+     *     0x30-0x31  Trusted Application Calls
+     *     0x32-0x3f  Trusted OS Calls
+     * b23:16 在Fast Call时这些比特位必须为0，其他值保留未用
+     *        ARMv7传统的Trusted OS在Fast Call时必须为1
+     * b15:0  函数号
+     */
+	ubfx	x16, x0, #FUNCID_OEN_SHIFT, #FUNCID_OEN_WIDTH   /* 服务类型 */
+	ubfx	x15, x0, #FUNCID_TYPE_SHIFT, #FUNCID_TYPE_WIDTH /* 调用类型 */
+	orr	x16, x16, x15, lsl #FUNCID_OEN_WIDTH /* 拼接 调用类型：服务类型 */
+
+    /* __RT_SVC_DESCS_START__为rt_svc_descs段的起始地址，此段存放服务描述符
+     * RT_SVC_DESC_HANDLE为服务句柄在服务描述符结构体中的偏移量
+     * 以下代码保存第一个复位句柄的地址到x11中
+     */
+	adr	x11, (__RT_SVC_DESCS_START__ + RT_SVC_DESC_HANDLE)
+
+    /* 因为描述符在内存中布局是乱的通过rt_svc_descs_indices数组来查找描述符在内存中的位置
+     * rt_svc_descs_indices为rt_svc_descs的索引
+     * 获取数组下标 -> W15
+     */
+	adr	x14, rt_svc_descs_indices
+	ldrb	w15, [x14, x16]
+
+	/* 从上下文中提取C运行环境的栈指针 */
+	ldr	x12, [x6, #CTX_EL3STATE_OFFSET + CTX_RUNTIME_SP]
+	
+	/* 索引的值不应该大于127 */
+	tbnz	w15, 7, smc_unknown
+
+	/* 切换到C的指针 */
+	msr	spsel, #0
+
+	/*
+	 * Get the descriptor using the index
+	 * x11 = (base + off), x15 = index
+	 *
+	 * handler = (base + off) + (index << log2(size))
+	 */
+	lsl	w10, w15, #RT_SVC_SIZE_LOG2/* 计算偏移量 */
+	ldr	x15, [x11, w10, uxtw]/* 加载出对应服务的句柄 */
+
+	/*
+	 * Save the SPSR_EL3, ELR_EL3, & SCR_EL3 in case there is a world
+	 * switch during SMC handling.
+	 * TODO: Revisit if all system registers can be saved later.
+	 */
+	mrs	x16, spsr_el3
+	mrs	x17, elr_el3
+	mrs	x18, scr_el3
+	stp	x16, x17, [x6, #CTX_EL3STATE_OFFSET + CTX_SPSR_EL3]
+	str	x18, [x6, #CTX_EL3STATE_OFFSET + CTX_SCR_EL3]
+
+	/* Copy SCR_EL3.NS bit to the flag to indicate caller's security */
+	bfi	x7, x18, #0, #1/* x7用于传递给服务函数security state */
+
+	mov	sp, x12
+
+	/*
+	 * Call the Secure Monitor Call handler and then drop directly into
+	 * el3_exit() which will program any remaining architectural state
+	 * prior to issuing the ERET to the desired lower EL.
+	 */
+#if DEBUG
+	cbz	x15, rt_svc_fw_critical_error/* x15等于0说明有错误存在 */
+#endif
+	blr	x15 /* 调用对应的服务 */
+
+	b	el3_exit/* 异常恢复 */
+```
+
 # BL1分析
 
 ## 功能概要
@@ -396,7 +1441,7 @@ func bl1_entrypoint /* BL1的程序入口 */
 		_init_memory=1	/* 内存初始化 */\
 		_init_c_runtime=1	/* 初始化堆栈（SP）等 */\
 		_exception_vectors=bl1_exceptions /* 设置异常向量 */
-	
+
 	/*--------------------------------------------------
 	 * bl1_early_platform_setup
 	 * 初始化看梦狗、串口（用于输出调试信息）
@@ -404,7 +1449,7 @@ func bl1_entrypoint /* BL1的程序入口 */
 	 *--------------------------------------------------
 	 */
 	bl	bl1_early_platform_setup
-	
+
 	/*--------------------------------------------------
 	 * bl1_plat_arch_setup
 	 * 根据内存布局设置页表并使能MMU
@@ -476,7 +1521,7 @@ void bl1_main(void)
 
 	/* 获取下一级要执行的镜像id */
 	image_id = bl1_plat_get_next_image_id();
-	
+
 	if (image_id == BL2_IMAGE_ID)
 		bl1_load_bl2();/* 加载BL2到内存 */
 	else
@@ -634,12 +1679,12 @@ func smc_handler64
 	mov	x30, #BL1_SMC_RUN_IMAGE
 	cmp	x30, x0
 	b.ne	smc_handler/* 其他SMC调用 */
-	
+
 	/* 确定在secure world执行RUN_IMAGE SMC调用 */
 	mrs	x30, scr_el3
 	tst	x30, #SCR_NS_BIT
 	b.ne	unexpected_sync_exception/* 报告异常 */
-	
+
 	/* 加载出异常退出时保存的SP，切换到SP_EL0 */
 	ldr	x30, [sp, #CTX_EL3STATE_OFFSET + CTX_RUNTIME_SP]
 	msr	spsel, #0
@@ -689,7 +1734,7 @@ smc_handler:
 	bl	save_gp_registers/* 保存x0-x29，LR(x30)在之前已经保存过了 */
 	mov	x5, xzr/* x5作为cookie参数传递给异常函数现在未用 */
 	mov	x6, sp /* x6为作为handle传递给异常处理函数，x6为堆栈的指针，便于遗产函数设置返回值 */
-	
+
 	/* 加载出上一次异常退出的SP指针 */
 	ldr	x12, [x6, #CTX_EL3STATE_OFFSET + CTX_RUNTIME_SP]
 
@@ -950,13 +1995,13 @@ void bl31_main(void)
 	/* 初始化系统服务，并构造索引rt_svc_descs_indices */
 	INFO("BL31: Initializing runtime services\n");
 	runtime_svc_init();
-	
+
   	/* 判对有无bl31，执行对应的初始化 */
 	if (bl32_init) {
 		INFO("BL31: Initializing BL32\n");
 		(*bl32_init)();
 	}
-	
+
 	 /* 初始化下一级BL的执行环境，以便异常返回时执行下一级BL */
 	bl31_prepare_next_image_entry();
 
@@ -1383,119 +2428,4 @@ rt_svc_fw_critical_error:
 	no_ret	report_unhandled_exception
 endfunc smc_handler
 ```
-
-## SMC服务框架
-
-SMC调用通过W0标示当前调用的类型。W0根据如下方式标记调用类型
-
-```
-W0用于确定调用的功能
-b31    调用类型 1->Fast Call 0->Yielding Call
-b30    标示32bit还是64bit调用
-b29:24 服务类型
-        0x0        ARM架构相关
-        0x1        CPU服务
-        0x2        SiP服务
-        0x3        OEM服务
-        0x4        标准安全服务
-        0x5        标准Hypervisor服务
-        0x6        厂商定制的Hypervisor服务
-        0x07-0x2f  预留
-        0x30-0x31  Trusted Application Calls
-        0x32-0x3f  Trusted OS Calls
-b23:16 在Fast Call时这些比特位必须为0，其他值保留未用
-       ARMv7传统的Trusted OS在Fast Call时必须为1
-b15:0  函数号
-```
-
-SMC服务通过结构体描述
-
-```C
-typedef struct rt_svc_desc {
-  	/* start_oen-end_oen 对应W0 b29:24中的一个片段 */
-	uint8_t start_oen;     /* 当前服务可以处理的SMC调用编号的起始编号 */
-	uint8_t end_oen;       /* 当前服务可以处理的SMC调用编号的结束编号 */
-	uint8_t call_type;     /* 调用的类型，对应W0 b30 */
-	const char *name;      /* 名字 */
-	rt_svc_init_t init;    /* 服务初始化函数 */
-	rt_svc_handle_t handle;/* 服务句柄 */
-} rt_svc_desc_t;
-```
-
-通过如下的宏声明一个SMC服务，服务被放在rt_svc_descs段中，并在链接脚本中指定rt_svc_descs的起始结束符号（\_\_RT\_SVC\_DESCS\_START\_\_/\_\_RT\_SVC\_DESCS\_END\_\_）
-
-```c
-#define DECLARE_RT_SVC(_name, _start, _end, _type, _setup, _smch) \
-	static const rt_svc_desc_t __svc_desc_ ## _name \
-		__section("rt_svc_descs") __used = { \
-			.start_oen = _start, \
-			.end_oen = _end, \
-			.call_type = _type, \
-			.name = #_name, \
-			.init = _setup, \
-			.handle = _smch }
-```
-
-SMC服务初始化
-
-```c
-void runtime_svc_init(void)
-{
-	int rc = 0, index, start_idx, end_idx;
-
-	/* 异常检查 */
-	assert((RT_SVC_DESCS_END >= RT_SVC_DESCS_START) &&
-			(RT_SVC_DECS_NUM < MAX_RT_SVCS));
-
-	/* 没有系统服务退出 */
-	if (RT_SVC_DECS_NUM == 0)
-		return;
-
-	/* 初始化索引*/
-	memset(rt_svc_descs_indices, -1, sizeof(rt_svc_descs_indices));
-	
-    /* 遍历所有的SMC服务 */
-    rt_svc_descs = (rt_svc_desc_t *) RT_SVC_DESCS_START;
-	for (index = 0; index < RT_SVC_DECS_NUM; index++) {
-		rt_svc_desc_t *service = &rt_svc_descs[index];
-		
-      	/* 检查SMC服务是否合法 */
-		rc = validate_rt_svc_desc(service);
-		if (rc) {
-			ERROR("Invalid runtime service descriptor %p\n",
-				(void *) service);
-			panic();
-		}
-
-		/*
-		 * 调用初始话函数
-		 */
-		if (service->init) {
-			rc = service->init();
-			if (rc) {
-				ERROR("Error initializing runtime service %s\n",
-						service->name);
-				continue;
-			}
-		}
-
-		/*
-		 * 构建索引
-		 * 通过调用类型和服务类型查找服务在rt_svc_descs中的下标
-		 */
-		start_idx = get_unique_oen(rt_svc_descs[index].start_oen,
-				service->call_type);
-		assert(start_idx < MAX_RT_SVCS);
-		end_idx = get_unique_oen(rt_svc_descs[index].end_oen,
-				service->call_type);
-		assert(end_idx < MAX_RT_SVCS);
-		for (; start_idx <= end_idx; start_idx++)
-			rt_svc_descs_indices[start_idx] = index;
-	}
-}
-```
-
-
-
-
 
