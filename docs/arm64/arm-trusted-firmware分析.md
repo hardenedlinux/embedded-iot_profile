@@ -1420,6 +1420,270 @@ smc_handler64:
 	b	el3_exit/* 异常恢复 */
 ```
 
+# PSCI
+
+## 初始化
+
+在BL1阶段除主处理器外，其他处理器被暂停
+
+```assembly
+/* bl1入口第一行 */
+el3_entrypoint_common					\
+		_set_endian=1					\
+		_warm_boot_mailbox=!PROGRAMMABLE_RESET_ADDRESS	\
+		_secondary_cold_boot=!COLD_BOOT_SINGLE_CPU	\
+		_init_memory=1					\
+		_init_c_runtime=1				\
+		_exception_vectors=bl1_exceptions
+		
+/* el3_entrypoint_common宏中的片段 */
+.if \_secondary_cold_boot
+		bl	plat_is_my_cpu_primary /* 判断是否为主处理器 */
+		cmp	r0, #0
+		bne	do_primary_cold_boot
+
+		/* 次处理器处理 */
+		bl	plat_secondary_cold_boot_setup/* 此函数与具体平台实现有关 */
+		/* 此代码不会执行，因为plat_secondary_cold_boot_setup不会返回 */
+		no_ret	plat_panic_handler
+	/* 主处理器继续执行 */
+	do_primary_cold_boot:
+.endif /* _secondary_cold_boot */
+
+```
+
+在BL31阶段，在SMC的一个服务中（Standard Service）中实现PSCI服务。
+
+```c
+/* 服务初始化函数 */
+static int32_t std_svc_setup(void)
+{
+	uintptr_t svc_arg;
+	
+    /* cpu被唤醒的入口函数 */
+	svc_arg = get_arm_std_svc_args(PSCI_FID_MASK);
+	assert(svc_arg);
+
+	/*
+	 *PSCI作为标准服务实现，初始化PSCI服务
+	 */
+	return psci_setup((const psci_lib_args_t *)svc_arg);
+}
+
+/* PSCI服务初始化的参数 */
+uintptr_t get_arm_std_svc_args(unsigned int svc_mask)
+{
+	/* 构造PSCI服务初始化的参数，cpu被唤醒入口为bl31_warm_entrypoint */
+	DEFINE_STATIC_PSCI_LIB_ARGS_V1(psci_args, bl31_warm_entrypoint);
+
+	/* PSCI is the only ARM Standard Service implemented */
+	assert(svc_mask == PSCI_FID_MASK);
+
+	return (uintptr_t)&psci_args;
+}
+
+/* PSCI服务初始化 */
+int psci_setup(const psci_lib_args_t *lib_args)
+{
+	const unsigned char *topology_tree;
+	
+  	/* 校验参数是否有效 */
+	assert(VERIFY_PSCI_LIB_ARGS_V1(lib_args));
+
+	/* 架构相关初始化 */
+	psci_arch_setup();
+
+	/* 获取芯片拓扑图（第一个字节标示有几个簇，后面的字节标示各个簇有几个cup） */
+	topology_tree = plat_get_power_domain_tree_desc();
+
+	/* Populate the power domain arrays using the platform topology map */
+	populate_power_domain_tree(topology_tree);
+
+	/* Update the CPU limits for each node in psci_non_cpu_pd_nodes */
+	psci_update_pwrlvl_limits();
+
+	/* Populate the mpidr field of cpu node for this CPU */
+	psci_cpu_pd_nodes[plat_my_core_pos()].mpidr =
+		read_mpidr() & MPIDR_AFFINITY_MASK;
+
+	psci_init_req_local_pwr_states();
+
+	/*
+	 * Set the requested and target state of this CPU and all the higher
+	 * power domain levels for this CPU to run.
+	 */
+	psci_set_pwr_domains_to_run(PLAT_MAX_PWR_LVL);
+	
+    /* 获取平台支持的电源管理操作句柄psci_plat_pm_ops
+     * 并设置芯片被唤醒的入口lib_args->mailbox_ep，即bl31_warm_entrypoint
+     */
+	plat_setup_psci_ops((uintptr_t)lib_args->mailbox_ep, &psci_plat_pm_ops);
+	assert(psci_plat_pm_ops);
+
+	/*
+	 * Flush `psci_plat_pm_ops` as it will be accessed by secondary CPUs
+	 * during warm boot before data cache is enabled.
+	 */
+	flush_dcache_range((uintptr_t)&psci_plat_pm_ops,
+					sizeof(psci_plat_pm_ops));
+
+	/* 标记可用的电源管理操作 */
+	psci_caps = PSCI_GENERIC_CAP;
+
+	if (psci_plat_pm_ops->pwr_domain_off)
+		psci_caps |=  define_psci_cap(PSCI_CPU_OFF);
+	if (psci_plat_pm_ops->pwr_domain_on &&
+			psci_plat_pm_ops->pwr_domain_on_finish)
+		psci_caps |=  define_psci_cap(PSCI_CPU_ON_AARCH64);
+	if (psci_plat_pm_ops->pwr_domain_suspend &&
+			psci_plat_pm_ops->pwr_domain_suspend_finish) {
+		psci_caps |=  define_psci_cap(PSCI_CPU_SUSPEND_AARCH64);
+		if (psci_plat_pm_ops->get_sys_suspend_power_state)
+			psci_caps |=  define_psci_cap(PSCI_SYSTEM_SUSPEND_AARCH64);
+	}
+	if (psci_plat_pm_ops->system_off)
+		psci_caps |=  define_psci_cap(PSCI_SYSTEM_OFF);
+	if (psci_plat_pm_ops->system_reset)
+		psci_caps |=  define_psci_cap(PSCI_SYSTEM_RESET);
+	if (psci_plat_pm_ops->get_node_hw_state)
+		psci_caps |= define_psci_cap(PSCI_NODE_HW_STATE_AARCH64);
+
+#if ENABLE_PSCI_STAT
+	psci_caps |=  define_psci_cap(PSCI_STAT_RESIDENCY_AARCH64);
+	psci_caps |=  define_psci_cap(PSCI_STAT_COUNT_AARCH64);
+#endif
+	return 0;
+}
+
+```
+
+## 服务
+
+PSCI提供电源管理相关的服务
+
+```c
+u_register_t psci_smc_handler(uint32_t smc_fid,
+			  u_register_t x1,
+			  u_register_t x2,
+			  u_register_t x3,
+			  u_register_t x4,
+			  void *cookie,
+			  void *handle,
+			  u_register_t flags)
+{
+  	/* 只为Non-Secure服务 */
+	if (is_caller_secure(flags))
+		return SMC_UNK;
+
+	/* 检测调用的服务是否存在 */
+	if (!(psci_caps & define_psci_cap(smc_fid)))
+		return SMC_UNK;
+
+	if (((smc_fid >> FUNCID_CC_SHIFT) & FUNCID_CC_MASK) == SMC_32) {
+		/* 32比特PSCI服务 */
+
+		x1 = (uint32_t)x1;
+		x2 = (uint32_t)x2;
+		x3 = (uint32_t)x3;
+
+		switch (smc_fid) {
+		case PSCI_VERSION:
+			return psci_version();
+
+		case PSCI_CPU_OFF:
+			return psci_cpu_off();
+
+		case PSCI_CPU_SUSPEND_AARCH32:
+			return psci_cpu_suspend(x1, x2, x3);
+
+		case PSCI_CPU_ON_AARCH32:
+			return psci_cpu_on(x1, x2, x3);
+
+		case PSCI_AFFINITY_INFO_AARCH32:
+			return psci_affinity_info(x1, x2);
+
+		case PSCI_MIG_AARCH32:
+			return psci_migrate(x1);
+
+		case PSCI_MIG_INFO_TYPE:
+			return psci_migrate_info_type();
+
+		case PSCI_MIG_INFO_UP_CPU_AARCH32:
+			return psci_migrate_info_up_cpu();
+
+		case PSCI_NODE_HW_STATE_AARCH32:
+			return psci_node_hw_state(x1, x2);
+
+		case PSCI_SYSTEM_SUSPEND_AARCH32:
+			return psci_system_suspend(x1, x2);
+
+		case PSCI_SYSTEM_OFF:
+			psci_system_off();
+			/* We should never return from psci_system_off() */
+
+		case PSCI_SYSTEM_RESET:
+			psci_system_reset();
+			/* We should never return from psci_system_reset() */
+
+		case PSCI_FEATURES:
+			return psci_features(x1);
+
+#if ENABLE_PSCI_STAT
+		case PSCI_STAT_RESIDENCY_AARCH32:
+			return psci_stat_residency(x1, x2);
+
+		case PSCI_STAT_COUNT_AARCH32:
+			return psci_stat_count(x1, x2);
+#endif
+
+		default:
+			break;
+		}
+	} else {
+		/* 64位的PSCI服务 */
+
+		switch (smc_fid) {
+		case PSCI_CPU_SUSPEND_AARCH64:
+			return psci_cpu_suspend(x1, x2, x3);
+
+		case PSCI_CPU_ON_AARCH64:
+			return psci_cpu_on(x1, x2, x3);
+
+		case PSCI_AFFINITY_INFO_AARCH64:
+			return psci_affinity_info(x1, x2);
+
+		case PSCI_MIG_AARCH64:
+			return psci_migrate(x1);
+
+		case PSCI_MIG_INFO_UP_CPU_AARCH64:
+			return psci_migrate_info_up_cpu();
+
+		case PSCI_NODE_HW_STATE_AARCH64:
+			return psci_node_hw_state(x1, x2);
+
+		case PSCI_SYSTEM_SUSPEND_AARCH64:
+			return psci_system_suspend(x1, x2);
+
+#if ENABLE_PSCI_STAT
+		case PSCI_STAT_RESIDENCY_AARCH64:
+			return psci_stat_residency(x1, x2);
+
+		case PSCI_STAT_COUNT_AARCH64:
+			return psci_stat_count(x1, x2);
+#endif
+
+		default:
+			break;
+		}
+	}
+	/* 未定义的服务 */
+	WARN("Unimplemented PSCI Call: 0x%x \n", smc_fid);
+	return SMC_UNK;
+}
+```
+
+
+
 # BL1分析
 
 ## 功能概要
