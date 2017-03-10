@@ -1682,6 +1682,747 @@ u_register_t psci_smc_handler(uint32_t smc_fid,
 }
 ```
 
+# TEE
+
+arm-trusted-firware并没有实现一个完整的TEE，只给出了一个简单的与TEE类似的程序（BL32）。AARCH64 TEE应该是BL31（monitor）与BL32（Trusted OS）配合工作的。一般TOS通过monitor的一个SMC服务与Non-Secure通信。
+
+## Monitor SMC服务
+
+此SMC服务需要启动TOS，并且为TOS与Non-Secure提供通信服务。
+
+### TOS启动
+
+应为arm-trusted-firware并没有实际的TOS，这里以tsp（位于`bl32\tsp`，对应的SMC服务位于`services\spd\tspd`）为例作部分介绍。
+
+其中有一个宏**TSP_INIT_ASYNC**
+
+当宏**TSP_INIT_ASYNC**定义时
+
+1. BL31（monitor）在异常退出时执行BL32（TOS）
+
+2. BL32（TOS）初始化完成后通过SMC调用通知BL31（monitor）
+
+3. BL31（monitor）在SMC服务中启动BL33（APPBL）
+
+当宏**TSP_INIT_ASYNC**未定义时
+
+1. BL31（monitor）在SMC服务初始化完成后通过异常退出执行BL32（TOS）
+
+2. BL32（TOS）初始化完成后通过SMC调用返回初始化的位置
+
+3. BL31（monitor）执行完才退出异常执行BL33（APPBL）
+
+
+此处涉及代码比较多
+
+#### BL31主函数
+
+```c
+void bl31_main(void)
+{
+	//……
+
+	/* 初始化SMC服务 
+	 * 为TOS服务的SMC服务会根据TSP_INIT_ASYNC调用部分函数
+	 *   void bl31_set_next_image_type(uint32_t security_state)
+	 *   void bl31_register_bl32_init(int32_t (*func)(void))
+     */
+	INFO("BL31: Initializing runtime services\n");
+	runtime_svc_init();
+
+	/*
+	 * 当宏TSP_INIT_ASYNC未定义时
+	 * 给TOS服务的SMC宏将初始化此函数句柄
+	 * 此函数句柄将会通过异常退出执行TOS（BL32）
+	 */
+	if (bl32_init) {
+		INFO("BL31: Initializing BL32\n");
+		(*bl32_init)();
+	}
+
+	 /* 初始化下一级BL的执行环境 */
+	bl31_prepare_next_image_entry();
+
+	//……
+}
+```
+
+以上代码是一个简化的主函数。在SMC服务初始化时，为TOS服务的SMC服务将根据**TSP_INIT_ASYNC**调用**bl31_set_next_image_type**、**bl31_register_bl32_init**
+
+**bl31_set_next_image_type**相关部分，**TSP_INIT_ASYNC**未定义时此不分发挥作用
+
+```c
+/* 默认BL31执行完成后异常退出要执行的镜像的security state */
+static uint32_t next_image_type = NON_SECURE;
+
+/* 设置BL31执行完成异常退出要执行镜像的security state
+ * security_state = NON_SECURE 执行BL33 APPBL
+ * security_state = SECURE 执行BL32 TOS
+ */
+void bl31_set_next_image_type(uint32_t security_state)
+{
+	assert(sec_state_is_valid(security_state));
+	next_image_type = security_state;
+}
+
+/* 在bl31_prepare_next_image_entry函数中被调用，用于初始化下一级BL */
+uint32_t bl31_get_next_image_type(void)
+{
+	return next_image_type;
+}
+```
+
+**bl31_register_bl32_init**相关部分，**TSP_INIT_ASYNC**定义时此不分发挥作用
+
+```c
+/* 函数指针，用于初始化TOS */
+static int32_t (*bl32_init)(void);
+/* 设置bl32_init*/
+void bl31_register_bl32_init(int32_t (*func)(void))
+{
+	bl32_init = func;
+}
+```
+
+#### TSPD
+
+TSPD并不是一个完整的TOS，只用于测试。不过可以用于启动分析。
+
+##### 服务初始化
+
+```c
+int32_t tspd_setup(void)
+{
+	entry_point_info_t *tsp_ep_info;
+	uint32_t linear_id;
+
+	linear_id = plat_my_core_pos();
+
+	/* 获取TOS执行环境并做部分验证工作 */
+	tsp_ep_info = bl31_plat_get_next_image_ep_info(SECURE);
+	if (!tsp_ep_info) {
+		WARN("No TSP provided by BL2 boot loader, Booting device"
+			" without TSP initialization. SMC`s destined for TSP"
+			" will return SMC_UNK\n");
+		return 1;
+	}
+	if (!tsp_ep_info->pc)
+		return 1;
+
+	/*
+	 * 执行部分初始化工作
+	 */
+	tspd_init_tsp_ep_state(tsp_ep_info,
+				TSP_AARCH64,
+				tsp_ep_info->pc,
+				&tspd_sp_context[linear_id]);
+
+#if TSP_INIT_ASYNC
+  /* 设置下一级BL的security state
+     在异常退出时执行TOS */
+	bl31_set_next_image_type(SECURE);
+#else
+	/* 在bl32_init中初始话BL32*/
+	bl31_register_bl32_init(&tspd_init);
+#endif
+	return 0;
+}
+```
+
+##### 异常处理
+
+```c
+uint64_t tspd_smc_handler(uint32_t smc_fid,
+			 uint64_t x1,
+			 uint64_t x2,
+			 uint64_t x3,
+			 uint64_t x4,
+			 void *cookie,
+			 void *handle,
+			 uint64_t flags)
+{
+	cpu_context_t *ns_cpu_context;
+	uint32_t linear_id = plat_my_core_pos(), ns;
+	tsp_context_t *tsp_ctx = &tspd_sp_context[linear_id];
+	uint64_t rc;
+#if TSP_INIT_ASYNC
+	entry_point_info_t *next_image_info;
+#endif
+
+	/* Determine which security state this SMC originated from */
+	ns = is_caller_non_secure(flags);
+
+	switch (smc_fid) {
+	//……
+	/* TSP_ENTRY_DONE在BL32初始化完才，通过SMC返回 */
+	case TSP_ENTRY_DONE:
+		if (ns)/* 此异常只能来自Secure */
+			SMC_RET1(handle, SMC_UNK);
+		
+        /* 此异常只能发生一次 */
+		assert(tsp_vectors == NULL);
+		tsp_vectors = (tsp_vectors_t *) x1;/* 记录服务函数 */
+
+		if (tsp_vectors) {
+          	/* 记录状态 */
+			set_tsp_pstate(tsp_ctx->state, TSP_PSTATE_ON);
+
+			/* TSP初始化完才，注册电源管理句柄 */
+			psci_register_spd_pm_hook(&tspd_pm);
+
+          	/* S-EL1注册中断处理函数 */
+			flags = 0;
+			set_interrupt_rm_flag(flags, NON_SECURE);
+			rc = register_interrupt_type_handler(INTR_TYPE_S_EL1,
+						tspd_sel1_interrupt_handler,
+						flags);
+			if (rc)
+				panic();
+
+#if TSP_NS_INTR_ASYNC_PREEMPT
+			/* Non-Secure注册中断处理函数 */
+			flags = 0;
+			set_interrupt_rm_flag(flags, SECURE);
+
+			rc = register_interrupt_type_handler(INTR_TYPE_NS,
+						tspd_ns_interrupt_handler,
+						flags);
+			if (rc)
+				panic();
+
+			/* 禁止中断 */
+			disable_intr_rm_local(INTR_TYPE_NS, SECURE);
+#endif
+		}
+
+
+#if TSP_INIT_ASYNC
+		/* 启动BL33(APPBL) */
+		assert(cm_get_context(SECURE) == &tsp_ctx->cpu_ctx);
+		cm_el1_sysregs_context_save(SECURE);
+		next_image_info = bl31_plat_get_next_image_ep_info(NON_SECURE);
+		assert(next_image_info);
+		assert(NON_SECURE ==
+				GET_SECURITY_STATE(next_image_info->h.attr));
+		cm_init_my_context(next_image_info);
+		cm_prepare_el3_exit(NON_SECURE);
+		SMC_RET0(cm_get_context(NON_SECURE));
+#else
+		/* 返回tspd_synchronous_sp_entry处继续BL31的main方法 */
+		tspd_synchronous_sp_exit(tsp_ctx, x1);
+#endif
+	
+	//……
+	default:
+		break;
+	}
+
+	SMC_RET1(handle, SMC_UNK);
+}
+```
+
+##### 同步执行
+
+上面遗产处理中，有一组特别的函数**tspd_synchronous_sp_entry** 、**tspd_synchronous_sp_exit**
+
+**tspd_synchronous_sp_entry**用于退出异常执行下一级BL
+
+**tspd_synchronous_sp_exit**用于下一级BL执行结束后通过SMC返回，然后跳转到**tspd_synchronous_sp_entry**后继续执行。
+
+具体代码如下
+
+```c
+uint64_t tspd_synchronous_sp_entry(tsp_context_t *tsp_ctx)
+{
+	uint64_t rc;
+
+	assert(tsp_ctx != NULL);
+	assert(tsp_ctx->c_rt_ctx == 0);
+	assert(cm_get_context(SECURE) == &tsp_ctx->cpu_ctx);
+  	
+  	/* 恢复SECURE下的系统寄存器 */
+	cm_el1_sysregs_context_restore(SECURE);
+  	/* 设置遗产返回相关的寄存器，以便异常退出后执行对应的程序 */
+	cm_set_next_eret_context(SECURE);
+  	/* 保存x19-x30到堆栈，并记录堆栈指针到tsp_ctx->c_rt_ctx */
+	rc = tspd_enter_sp(&tsp_ctx->c_rt_ctx);
+#if DEBUG
+	tsp_ctx->c_rt_ctx = 0;
+#endif
+
+	return rc;
+}
+
+void tspd_synchronous_sp_exit(tsp_context_t *tsp_ctx, uint64_t ret)
+{
+	assert(tsp_ctx != NULL);
+	assert(cm_get_context(SECURE) == &tsp_ctx->cpu_ctx);
+    /* 保存SECURE下的系统寄存器 */
+	cm_el1_sysregs_context_save(SECURE);
+
+	assert(tsp_ctx->c_rt_ctx != 0);
+  	
+  	/* 通过tsp_ctx->c_rt_ctx恢复SP，并从堆栈中恢复x19-x30 */
+	tspd_exit_sp(tsp_ctx->c_rt_ctx, ret);
+
+	/* 此处不会执行 */
+	assert(0);
+}
+```
+
+**tspd_enter_sp**、**tspd_exit_sp**实现细节如下
+
+```assembly
+	.global	tspd_enter_sp
+func tspd_enter_sp
+	/* 保存SP到X0指定的地址 */
+	mov	x3, sp
+	str	x3, [x0, #0]	
+	
+	/* 开辟栈空间保存x19-x30 */
+	sub	sp, sp, #TSPD_C_RT_CTX_SIZE
+	stp	x19, x20, [sp, #TSPD_C_RT_CTX_X19]
+	stp	x21, x22, [sp, #TSPD_C_RT_CTX_X21]
+	stp	x23, x24, [sp, #TSPD_C_RT_CTX_X23]
+	stp	x25, x26, [sp, #TSPD_C_RT_CTX_X25]
+	stp	x27, x28, [sp, #TSPD_C_RT_CTX_X27]
+	stp	x29, x30, [sp, #TSPD_C_RT_CTX_X29]
+
+	/* 遗产退出执行下一级BL */
+	b	el3_exit
+endfunc tspd_enter_sp
+
+	.global tspd_exit_sp
+func tspd_exit_sp
+	/* 恢复堆栈指针 */
+	mov	sp, x0
+
+	/* 恢复x19-x30 */
+	ldp	x19, x20, [x0, #(TSPD_C_RT_CTX_X19 - TSPD_C_RT_CTX_SIZE)]
+	ldp	x21, x22, [x0, #(TSPD_C_RT_CTX_X21 - TSPD_C_RT_CTX_SIZE)]
+	ldp	x23, x24, [x0, #(TSPD_C_RT_CTX_X23 - TSPD_C_RT_CTX_SIZE)]
+	ldp	x25, x26, [x0, #(TSPD_C_RT_CTX_X25 - TSPD_C_RT_CTX_SIZE)]
+	ldp	x27, x28, [x0, #(TSPD_C_RT_CTX_X27 - TSPD_C_RT_CTX_SIZE)]
+	ldp	x29, x30, [x0, #(TSPD_C_RT_CTX_X29 - TSPD_C_RT_CTX_SIZE)]
+
+	/* 返回x1 */
+	mov	x0, x1
+	ret/* 通过x30返回，将返回到CALL tspd_enter_sp的下一条指令 */
+endfunc tspd_exit_sp
+
+```
+
+### TOS与Non-Secure数据交换
+
+TOS与Non-Secure通过Monitor进行数据交换，异常处理代码如下。
+
+```assembly
+smc_handler32:
+	/* Check whether aarch32 issued an SMC64 */
+	tbnz	x0, #FUNCID_CC_SHIFT, smc_prohibited
+
+	/*
+	 * Since we're are coming from aarch32, x8-x18 need to be saved as per
+	 * SMC32 calling convention. If a lower EL in aarch64 is making an
+	 * SMC32 call then it must have saved x8-x17 already therein.
+	 */
+	stp	x8, x9, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_X8]
+	stp	x10, x11, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_X10]
+	stp	x12, x13, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_X12]
+	stp	x14, x15, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_X14]
+	stp	x16, x17, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_X16]
+
+	/* x4-x7, x18, sp_el0 are saved below */
+smc_handler64:
+	/*
+	 * Populate the parameters for the SMC handler.
+	 * We already have x0-x4 in place. x5 will point to a cookie (not used
+	 * now). x6 will point to the context structure (SP_EL3) and x7 will
+	 * contain flags we need to pass to the handler Hence save x5-x7.
+	 *
+	 * Note: x4 only needs to be preserved for AArch32 callers but we do it
+	 *       for AArch64 callers as well for convenience
+	 */
+	stp	x4, x5, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_X4]
+	stp	x6, x7, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_X6]
+
+	/* Save rest of the gpregs and sp_el0*/
+	save_x18_to_x29_sp_el0
+
+	mov	x5, xzr
+	mov	x6, sp
+
+	/* Get the unique owning entity number */
+    /* X0用于确定调用的功能
+     * b31    调用类型 1->Fast Call 0->Yielding Call
+     * b30    标示32bit还是64bit调用
+     * b29:24 服务类型
+     *           0x0  ARM架构相关
+     *           0x1  CPU服务
+     *           0x2  SiP服务
+     *           0x3  OEM服务
+     *           0x4  标准安全服务
+     *           0x5  标准Hypervisor服务
+     *           0x6  厂商定制的Hypervisor服务
+     *     0x07-0x2f  预留
+     *     0x30-0x31  Trusted Application Calls
+     *     0x32-0x3f  Trusted OS Calls
+     * b23:16 在Fast Call时这些比特位必须为0，其他值保留未用
+     *        ARMv7传统的Trusted OS在Fast Call时必须为1
+     * b15:0  函数号
+     */
+	ubfx	x16, x0, #FUNCID_OEN_SHIFT, #FUNCID_OEN_WIDTH   /* 服务类型 */
+	ubfx	x15, x0, #FUNCID_TYPE_SHIFT, #FUNCID_TYPE_WIDTH /* 调用类型 */
+	orr	x16, x16, x15, lsl #FUNCID_OEN_WIDTH
+
+    /* __RT_SVC_DESCS_START__为rt_svc_descs段的起始地址，此段存放服务描述符
+     * RT_SVC_DESC_HANDLE为服务句柄在服务描述符结构体中的偏移量
+     * 以下代码保存第一个复位句柄的地址到x11中
+     */
+	adr	x11, (__RT_SVC_DESCS_START__ + RT_SVC_DESC_HANDLE)
+
+	/* Load descriptor index from array of indices */
+    /* 因为描述符在内存中布局是乱的通过rt_svc_descs_indices数组来查找描述符在内存中的位置
+     * rt_svc_descs_indices为rt_svc_descs的索引
+     */
+	adr	x14, rt_svc_descs_indices
+	ldrb	w15, [x14, x16]
+
+	/*
+	 * Restore the saved C runtime stack value which will become the new
+	 * SP_EL0 i.e. EL3 runtime stack. It was saved in the 'cpu_context'
+	 * structure prior to the last ERET from EL3.
+	 */
+	ldr	x12, [x6, #CTX_EL3STATE_OFFSET + CTX_RUNTIME_SP]
+
+	/*
+	 * Any index greater than 127 is invalid. Check bit 7 for
+	 * a valid index
+	 */
+	tbnz	w15, 7, smc_unknown/* 索引的值不应该大于127 */
+
+	/* Switch to SP_EL0 */
+	msr	spsel, #0
+
+	/*
+	 * Get the descriptor using the index
+	 * x11 = (base + off), x15 = index
+	 *
+	 * handler = (base + off) + (index << log2(size))
+	 */
+	lsl	w10, w15, #RT_SVC_SIZE_LOG2/* 计算偏移量 */
+	ldr	x15, [x11, w10, uxtw]/* 加载出对应服务的句柄 */
+
+	/*
+	 * Save the SPSR_EL3, ELR_EL3, & SCR_EL3 in case there is a world
+	 * switch during SMC handling.
+	 * TODO: Revisit if all system registers can be saved later.
+	 */
+	mrs	x16, spsr_el3
+	mrs	x17, elr_el3
+	mrs	x18, scr_el3
+	stp	x16, x17, [x6, #CTX_EL3STATE_OFFSET + CTX_SPSR_EL3]
+	str	x18, [x6, #CTX_EL3STATE_OFFSET + CTX_SCR_EL3]
+
+	/* Copy SCR_EL3.NS bit to the flag to indicate caller's security */
+	bfi	x7, x18, #0, #1/* x7用于传递给服务函数security state */
+
+	mov	sp, x12
+
+	/*
+	 * Call the Secure Monitor Call handler and then drop directly into
+	 * el3_exit() which will program any remaining architectural state
+	 * prior to issuing the ERET to the desired lower EL.
+	 */
+#if DEBUG
+	cbz	x15, rt_svc_fw_critical_error/* x15等于0说明有错误存在 */
+#endif
+	blr	x15 /* 调用对应的服务 */
+
+	b	el3_exit/* 异常恢复 */
+```
+
+异常处理函数如下
+
+异常处理保护了X4-X7、X18-X30、SP_EL1
+
+X8-X17没有进行保护需要调用SMC服务的程序自行保存
+
+X0作为SMC的功能传递
+
+X1-X4作为SMC服务的参数传递
+
+cookie固定为0
+
+handle把SP_EL3传递给函数，便于修改返回值（现场保护通过SP_EL3完才）
+
+```c
+typedef uintptr_t (*rt_svc_handle_t)(uint32_t smc_fid,
+				  u_register_t x1,
+				  u_register_t x2,
+				  u_register_t x3,
+				  u_register_t x4,
+				  void *cookie,
+				  void *handle,
+				  u_register_t flags);
+```
+
+
+## Monitor中断
+
+为了灵活配置中断，Monitor使中断处理函数可以配置
+
+### 数据结构
+
+```c
+/* 中断类型定义 */
+#define INTR_TYPE_S_EL1			0
+#define INTR_TYPE_EL3			1
+#define INTR_TYPE_NS			2
+#define MAX_INTR_TYPES			3	
+#define INTR_TYPE_INVAL			MAX_INTR_TYPES
+
+/* 中断函数句柄 */
+typedef uint64_t (*interrupt_type_handler_t)(uint32_t id,
+					     uint32_t flags,
+					     void *handle,
+					     void *cookie);
+
+typedef struct intr_type_desc {
+  	/* 中断处理函数 */
+	interrupt_type_handler_t handler;
+  	/* 中断的路由模式：
+    	Bit0在Secure时中断要不要路由到EL3
+    	Bit1在Non-Secure时中断要不要路由到EL3*/
+	uint32_t flags;	
+  	/* 记录两种安全状态下（SCR_EL3.FIQ SCR_EL3.IRQ）的掩码（置位用） */
+	uint32_t scr_el3[2];
+} intr_type_desc_t;
+
+/* 根据中断分类，保存的函数句柄 */
+static intr_type_desc_t intr_type_descs[MAX_INTR_TYPES];
+```
+
+### 主要方法
+
+#### 获取EL3路由模式控制位
+
+```c
+uint32_t get_scr_el3_from_routing_model(uint32_t security_state)
+{
+	uint32_t scr_el3;
+	assert(sec_state_is_valid(security_state));/* 确定是有效的Security state */
+  	
+  	/* 获取每一种中断的路由控制位 */
+	scr_el3 = intr_type_descs[INTR_TYPE_NS].scr_el3[security_state];
+	scr_el3 |= intr_type_descs[INTR_TYPE_S_EL1].scr_el3[security_state];
+	scr_el3 |= intr_type_descs[INTR_TYPE_EL3].scr_el3[security_state];
+	return scr_el3;
+}
+```
+
+#### 根据中断类型设置路由控制位
+
+```c
+/* type为中断类型
+ * flags为路由模式
+ * 		Bit0在Secure时中断要不要路由到EL3
+ *		Bit1在Non-Secure时中断要不要路由到EL3
+ */
+int32_t set_routing_model(uint32_t type, uint32_t flags)
+{
+	int32_t rc;
+
+	rc = validate_interrupt_type(type);/* 校验中断类型 */
+	if (rc)
+		return rc;
+
+	rc = validate_routing_model(type, flags);/* 校验路由模式 */
+	if (rc)
+		return rc;
+	
+	intr_type_descs[type].flags = flags;/* 更新路由模式 */
+	set_scr_el3_from_rm(type, flags, SECURE);/* 更新scr_el3[SECURE] */
+	set_scr_el3_from_rm(type, flags, NON_SECURE);/* 更新scr_el3[NON_SECURE] */
+
+	return 0;
+}
+```
+
+#### 设置中断处理函数
+
+```c
+int32_t register_interrupt_type_handler(uint32_t type,/* 中断类型 */
+					interrupt_type_handler_t handler,/* 中断处理句柄 */
+					uint32_t flags)/* 路由模式标志 
+									* 	Bit0在Secure时中断要不要路由到EL3
+ 									*	Bit1在Non-Secure时中断要不要路由到EL3*/
+{
+	int32_t rc;
+
+	/* 确认中断处理句柄不是空指针 */
+	if (!handler)
+		return -EINVAL;
+
+	/* 校验路由模式有效 */
+	if (flags & INTR_TYPE_FLAGS_MASK)
+		return -EINVAL;
+
+	/* 中断处理句柄只能注册一次，此处检查中断处理句柄有无注册 */
+	if (intr_type_descs[type].handler)
+		return -EALREADY;
+	
+  	/* 根据中断类型设置路由模式 */
+	rc = set_routing_model(type, flags);
+	if (rc)
+		return rc;
+
+	/* 保存中断处理句柄 */
+	intr_type_descs[type].handler = handler;
+
+	return 0;
+}
+```
+
+#### 获取中断处理句柄
+
+```c
+interrupt_type_handler_t get_interrupt_type_handler(uint32_t type)
+{
+  	/* 校验是否是合法的中断类型 */
+	if (validate_interrupt_type(type))
+		return NULL;
+	/* 根据中断类型获取对应的中断处理句柄 */
+	return intr_type_descs[type].handler;
+}
+```
+
+#### 使能对应安全模式对应中断类型的中断
+
+```c
+int enable_intr_rm_local(uint32_t type, uint32_t security_state)
+{
+	uint32_t bit_pos, flag;
+	/* 判断有无中断处理句柄，操作没有中断句柄的中断是非法的 */
+	assert(intr_type_descs[type].handler);
+	
+  	/* 获取对应安全模式对应中断类型的中断的路由模式 */
+	flag = get_interrupt_rm_flag(intr_type_descs[type].flags,
+				security_state);
+	/* 获取对应中断的bit_pos，即FIQ IRQ */
+	bit_pos = plat_interrupt_type_to_line(type, security_state);
+  	/* 写SCR_EL3的路由控制位 SCR_EL3 |= flag << bit_pos */
+	cm_write_scr_el3_bit(security_state, bit_pos, flag);
+
+	return 0;
+}
+```
+
+####  失能对应安全模式对应中断类型的中断
+
+```c
+int disable_intr_rm_local(uint32_t type, uint32_t security_state)
+{
+	uint32_t bit_pos, flag;
+	/* 判断有无中断处理句柄，操作没有中断句柄的中断是非法的 */
+	assert(intr_type_descs[type].handler);
+	
+  	/* 获取对应安全模式对应中断类型的中断的路由模式 */
+  	/* INTR_DEFAULT_RM = 0
+  	 *     Bit0 = 0 Secure中断不路由到EL3
+  	 *     Bit1 = 1 Non-Secure中断不路由到EL3
+  	 */
+	flag = get_interrupt_rm_flag(INTR_DEFAULT_RM, security_state);
+  	/* 获取对应中断的bit_pos，即FIQ IRQ */
+	bit_pos = plat_interrupt_type_to_line(type, security_state);
+  	/* 写SCR_EL3的路由控制位 SCR_EL3 |= flag << bit_pos */
+	cm_write_scr_el3_bit(security_state, bit_pos, flag);
+
+	return 0;
+}
+```
+
+### 中断处理
+
+```assembly
+     /* 此宏用于FIQ IRQ处理 */
+	.macro	handle_interrupt_exception label
+	/* Enable the SError interrupt */
+    /* 使能SError中断 */
+	msr	daifclr, #DAIF_ABT_BIT
+
+	/* 保存x0-x30 sp_el1 */
+	str	x30, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_LR]
+	bl	save_gp_registers/* 因为此处为函数调用会修改lr(x30),所以lr需要提前保存 */
+
+	/* Save the EL3 system registers needed to return from this exception */
+	mrs	x0, spsr_el3 /* 获取进入异常前的程序状态寄存器 */
+	mrs	x1, elr_el3  /* 获取程序被中断的异常地址 */
+	/* 保存进入异常的程序状态和异常地址 */
+	stp	x0, x1, [sp, #CTX_EL3STATE_OFFSET + CTX_SPSR_EL3]
+
+	/* Switch to the runtime stack i.e. SP_EL0 */
+	ldr	x2, [sp, #CTX_EL3STATE_OFFSET + CTX_RUNTIME_SP]
+	mov	x20, sp   /* 保护中断现场保护指针，用于修改返回值 对应中断处理函数的handle参数 */
+	msr	spsel, #0
+	mov	sp, x2 /* 切换到EL0的SP指针 */
+
+	/*
+	 * Find out whether this is a valid interrupt type.
+	 * If the interrupt controller reports a spurious interrupt then return
+	 * to where we came from.
+	 */
+	bl	plat_ic_get_pending_interrupt_type /* 获取中断类型 */
+	cmp	x0, #INTR_TYPE_INVAL
+	b.eq	interrupt_exit_\label /* 非法类型直接退出 */
+
+	/*
+	 * Get the registered handler for this interrupt type.
+	 * A NULL return value could be 'cause of the following conditions:
+	 *
+	 * a. An interrupt of a type was routed correctly but a handler for its
+	 *    type was not registered.
+	 *
+	 * b. An interrupt of a type was not routed correctly so a handler for
+	 *    its type was not registered.
+	 *
+	 * c. An interrupt of a type was routed correctly to EL3, but was
+	 *    deasserted before its pending state could be read. Another
+	 *    interrupt of a different type pended at the same time and its
+	 *    type was reported as pending instead. However, a handler for this
+	 *    type was not registered.
+	 *
+	 * a. and b. can only happen due to a programming error. The
+	 * occurrence of c. could be beyond the control of Trusted Firmware.
+	 * It makes sense to return from this exception instead of reporting an
+	 * error.
+	 */
+	bl	get_interrupt_type_handler /* 获取中断处理函数 */
+	cbz	x0, interrupt_exit_\label  /* 函数指针为0，直接退出 */
+	mov	x21, x0
+
+	mov	x0, #INTR_ID_UNAVAILABLE /* 参数id */
+
+	/* Set the current security state in the 'flags' parameter */
+	mrs	x2, scr_el3
+	ubfx	x1, x2, #0, #1    /* 获取Security state，对应中断处理函数的flags参数 */
+
+	/* Restore the reference to the 'handle' i.e. SP_EL3 */
+	mov	x2, x20 /* x2指向SP_EL3 用于修改返回值*/
+
+	/* x3 will point to a cookie (not used now) */
+	mov	x3, xzr
+
+	/* Call the interrupt type handler */
+	blr	x21
+
+interrupt_exit_\label:
+	/* Return from exception, possibly in a different security state */
+	b	el3_exit
+
+	.endm
+```
+
 
 
 # BL1分析
