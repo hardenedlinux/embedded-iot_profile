@@ -2,6 +2,28 @@
 
 [TOC]
 
+## 概要
+
+**trusty**是基于little kernel开发的，关于little kernel的文章请参考我之前的文章[little kernel分析](https://github.com/hardenedlinux/embedded-iot_profile/blob/master/docs/arm64/dragonboard410c/little-kernel%E5%88%86%E6%9E%90.md)。
+
+源码获取
+
+```
+repo init -u https://android.googlesource.com/trusty/manifest
+repo sync
+```
+
+编译
+
+```
+# 工具链设置
+export ARCH_arm64_TOOLCHAIN_PREFIX=`pwd`/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.8/bin/aarch64-linux-android-
+export ARCH_arm_TOOLCHAIN_PREFIX=`pwd`/prebuilts/gcc/linux-x86/arm/arm-eabi-4.8/bin/arm-eabi-
+
+# 编译
+make -j24 generic-arm64
+```
+
 ## LK初始化钩子
 
 little kernel为了方便初始化过程，创造了一种初始化方法。
@@ -521,6 +543,27 @@ void trusty_app_init(void)
 ```
 
 ### 执行
+
+执行也通过初始化钩子完成
+
+```c
+static void start_apps(uint level)
+{
+	trusty_app_t *trusty_app;
+	u_int i;
+	int ret;
+	/* 此时加载操作已经完才trusty_app_list、trusty_app_count初始化已经完成 */
+	for (i = 0, trusty_app = trusty_app_list; i < trusty_app_count; i++, trusty_app++) {
+		if (trusty_app->ut->entry) {/* 确认具有入口函数 */
+			ret = uthread_start(trusty_app->ut);
+			if (ret)
+				panic("Cannot start Trusty app!\n");
+		}
+	}
+}
+/* 初始化钩子 用与启动app */
+LK_INIT_HOOK(libtrusty_apps, start_apps, LK_INIT_LEVEL_APPS + 1);
+```
 
 执行过程与uthread实现细节相关。uthread创建时，会创建一个little kernel线程，线程入口为**arch_uthread_startup**，并把uthread_t绑定到线程的局部存储。**arch_uthread_startup**执行时会访问线程句柄存储找到uthread_t，通过uthread_t找到uthread的入口entry。在异常退出后执行对应的代码
 
