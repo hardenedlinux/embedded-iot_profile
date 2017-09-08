@@ -19,7 +19,7 @@ coreboot是一个开源项目，旨在替换大多数计算机中的专有固件
 
 ### 构建内核
 
-1. 获取linux内核源码，
+1. 获取linux内核源码，**git clone https://github.com/torvalds/linux.git**
 2. 获取riscv linux内核源码，**git clone https://github.com/riscv/riscv-linux**
 3. 创建符号链接，**cd linux-4.6.x/arch ; ln -s ../../riscv-linux/arch/riscv  .**
 4. 重置为默认配置，**make ARCH=riscv defconfig**
