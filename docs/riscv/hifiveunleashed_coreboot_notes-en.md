@@ -1,10 +1,9 @@
 # Summary
 
-This article is used to show how to run coreboot on HiFive Unleashed and run
-Linux by BBL
+This article is a breif intro about how to run [coreboot](https://www.coreboot.org/) + BBL + Linux kernel on [HiFive Unleashed](https://www.sifive.com/boards/hifive-unleashed).
 
-The current community version of coreboot can not run linux, here we use the
-test version provided by hardenedlinux, and BBL and linux provided by sifive.
+The current coreboot version( Jan 7 2019) is not able to run linux kernel on HiFive Unleashed yet. We've been using the
+[workaround version](https://github.com/hardenedlinux/coreboot-HiFiveUnleashed/tree/HiFive-Unleashed-Test-Change) for test provided by HardenedLinux and BBL/linux provided by SiFive. Plz note that we will continue to upstreaming Unleashed code to the coreboot. W/ many thanks to Jonathan Neuschäfer, Philipp Hug and Ron Minnich.
 
 # Get the source code
 
