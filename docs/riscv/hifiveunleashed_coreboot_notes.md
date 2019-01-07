@@ -49,9 +49,13 @@ make menuconfig
 ```
 
 Mainboard->Mainboard vendor，选中SiFive
+
 Mainboard->Mainboard model，选中HiFive Unleashed
+
 Chipset->Privilege level for payload，选中payload running in m-mode
+
 Payload->Add a payload，选中An ELF executable payload
+
 Payload->Payload path and filename，文件名不要修改使用默认的payload.elf
 
 ## 编译
