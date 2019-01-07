@@ -48,15 +48,11 @@ make crossgcc-riscv
 make menuconfig
 ```
 
-Mainboard->Mainboard vendor，选中SiFive
-
-Mainboard->Mainboard model，选中HiFive Unleashed
-
-Chipset->Privilege level for payload，选中payload running in m-mode
-
-Payload->Add a payload，选中An ELF executable payload
-
-Payload->Payload path and filename，文件名不要修改使用默认的payload.elf
+- Mainboard->Mainboard vendor，选中**SiFive**
+- Mainboard->Mainboard model，选中**HiFive Unleashed**
+- Chipset->Privilege level for payload，选中**payload running in m-mode**
+- Payload->Add a payload，选中**An ELF executable payload**
+- Payload->Payload path and filename，使用默认值**payload.elf**
 
 ## 编译
 
@@ -67,7 +63,9 @@ Payload->Payload path and filename，文件名不要修改使用默认的payload
 
 ## 获取原厂固件
 
-https://static.dev.sifive.com/dev-kits/hifive-unleashed/hifive-unleashed-firmware-1.0.zip
+```
+wget https://static.dev.sifive.com/dev-kits/hifive-unleashed/hifive-unleashed-firmware-1.0.zip
+```
 
 ## 从sd卡启动原厂固件
 
@@ -76,6 +74,8 @@ https://static.dev.sifive.com/dev-kits/hifive-unleashed/hifive-unleashed-firmwar
 ```
 sudo dd if=hifive-unleashed-a00-A.B-YYYY-MM-DD.gpt of=/dev/sdx
 ```
+
+/dev/sdx是你的sd卡设备号
 
 把MSEL拨到11，连接USB和网线，电脑通过minicom连接ttyUSB1（波特率115200 8N1），按复位
 键重启HiFive Unleashed
@@ -96,7 +96,7 @@ ssh root@$target_ip "/usr/sbin/flashcp -v /tmp/coreboot.rom /dev/mtd0"
 
 # 测试
 
-把MSEL拨到11，连接USB和网线，电脑通过minicom连接ttyUSB1（波特率115200 8N1），按复位
+把MSEL拨到15，连接USB和网线，电脑通过minicom连接ttyUSB1（波特率115200 8N1），按复位
 键重启HiFive Unleashed，这时在终端将看到启动的log
 
 linux用户名：root，密码：sifive
