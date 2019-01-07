@@ -3,7 +3,7 @@
 这篇文章主要用于介绍如何在HiFive Unleashed上运行coreboot，并通过BBL运行linux。
 
 当前coreboot的社区版本还不能支持linux的运行，这里使用hardenedlinux的测试版本。linux
-和BBL使用sifive提供的版本。
+和BBL使用sifive提供的版本。非常感谢Jonathan Neuschäfer, Philipp Hug and Ron Minnich等社区黑客的支持。
 
 # 源码获取
 
