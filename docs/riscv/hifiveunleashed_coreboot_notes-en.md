@@ -28,7 +28,7 @@ index 2fd0d7c..181f3ff 100644
  
    /* Begining of code and text segment */
 -  . = 0x80000000;
-+  . = 0x80200000;
++  . = 0x82000000;
    _ftext = .;
    PROVIDE( eprol = . );
 ```
