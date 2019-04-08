@@ -1,17 +1,19 @@
 # Summary
 
-This article is a breif intro about how to run [coreboot](https://www.coreboot.org/) + BBL + Linux kernel on [HiFive Unleashed](https://www.sifive.com/boards/hifive-unleashed).
+This article is a breif intro about how to run [coreboot](https://www.coreboot.org/) + BBL/opensbi (provide SBI support) + Linux kernel on [HiFive Unleashed](https://www.sifive.com/boards/hifive-unleashed).
 
-The current coreboot version( Jan 7 2019) is not able to run linux kernel on HiFive Unleashed yet. We've been using the [workaround version](https://github.com/hardenedlinux/coreboot-HiFiveUnleashed/tree/HiFive-Unleashed-Test-Change) for test provided by HardenedLinux and BBL/linux provided by SiFive. Plz note that we will continue to upstreaming Unleashed code to the coreboot. W/ many thanks to Jonathan Neuschäfer, Philipp Hug and Ron Minnich.
+The current coreboot version( Jan 7 2019) is not able to run linux kernel on HiFive Unleashed yet. We've been using the workaround version([BBL provide SBI support](https://github.com/hardenedlinux/coreboot-HiFiveUnleashed/tree/HiFive-Unleashed-Test-Change) / [opensbi provide SBI support](https://github.com/hardenedlinux/coreboot-HiFiveUnleashed/tree/opensbi-test)) for test provided by HardenedLinux and BBL/linux provided by SiFive. Plz note that we will continue to upstreaming Unleashed code to the coreboot. W/ many thanks to Jonathan Neuschäfer, Philipp Hug and Ron Minnich.
 
-# Get the source code
+# BBL provide SBI support
+
+## Get the source code
 
 ```bash
 git clone -b HiFive-Unleashed-Test-Change git@github.com:hardenedlinux/coreboot-HiFiveUnleashed.git
 git clone git@github.com:sifive/freedom-u-sdk.git
 ```
 
-# Build BBL
+## Build BBL
 
 Because coreboot will occupy a portion of the memory starting at 0x80000000, BBL cannot run from address 0x80000000. So we need to adjust the starting address of the BBL. Modify freedom-u-sdk/riscv-pk/bbl/bbl.lds as follows:
 
@@ -32,15 +34,15 @@ index 2fd0d7c..181f3ff 100644
 
 Type make to compile. BBL's elf image is located at freedom-u-sdk/work/riscv-pk/bbl
 
-# Build coreboot
+## Build coreboot
 
-## Build toolchain
+### Build toolchain
 
 ```bash
 make crossgcc-riscv
 ```
 
-## Configuration
+### Configuration
 
 ```bash
 make menuconfig
@@ -52,9 +54,45 @@ make menuconfig
 - Payload->Add a payload, select **An ELF executable payload**
 - Payload->Payload path and filename, Use default value **payload.elf**
 
-## Compile
+### Compile
 
 Copy BBL image from freedom-u-sdk/work/riscv-pk/bbl to coreboot/payload.elf, then type make to compile.
+
+# opensbi provide SBI support
+
+## Get the source code
+
+```bash
+git clone -b opensbi-test git@github.com:hardenedlinux/coreboot-HiFiveUnleashed.git
+git clone git@github.com:sifive/freedom-u-sdk.git
+```
+
+## Build linux kernel
+
+Type make to compile. linux's elf image is located at freedom-u-sdk/work/linux/vmlinux-stripped
+
+## Build coreboot
+
+### Build toolchain
+
+```bash
+make crossgcc-riscv
+```
+
+### Configuration
+
+```bash
+make menuconfig
+```
+
+- Mainboard->Mainboard vendor, select **SiFive**
+- Mainboard->Mainboard model, select **HiFive Unleashed**
+- Payload->Add a payload, select **An linux binary payload**
+- Payload->Payload path and filename, Use default value **payload.bin**
+
+### Compile
+
+Create linux image: `riscv64-elf-objcopy -O binary freedom-u-sdk/work/linux/vmlinux-stripped coreboot/payload.bin`, then type make to compile.
 
 # Burn
 

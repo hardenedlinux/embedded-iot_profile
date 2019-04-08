@@ -1,17 +1,18 @@
 # 概要
 
-这篇文章主要用于介绍如何在HiFive Unleashed上运行coreboot，并通过BBL运行linux。
+这篇文章主要用于介绍如何在[HiFive Unleashed](https://www.sifive.com/boards/hifive-unleashed)上运行[coreboot](https://www.coreboot.org/) + BBL/opensbi（提供Supervisor Binary Interface支持）+ Linux。
 
 当前coreboot的社区版本还不能支持linux的运行，这里使用hardenedlinux的测试版本。linux和BBL使用sifive提供的版本。非常感谢Jonathan Neuschäfer, Philipp Hug and Ron Minnich等社区黑客的支持。
 
-# 源码获取
+# 通过BBL支持SBI
+## 源码获取
 
 ```bash
 git clone -b HiFive-Unleashed-Test-Change git@github.com:hardenedlinux/coreboot-HiFiveUnleashed.git
 git clone git@github.com:sifive/freedom-u-sdk.git
 ```
 
-# 编译bbl镜像
+## 编译BBL镜像
 
 因为coreboot会占用一部分内存，所以bbl不能从0x80000000处开始运行，需要往后移动一点。这里需要对freedom-u-sdk/riscv-pk/bbl/bbl.lds进行修正，修正如下：
 
@@ -32,15 +33,15 @@ index 2fd0d7c..181f3ff 100644
 
 然后执行make编译。bbl的elf镜像位于freedom-u-sdk/work/riscv-pk/bbl
 
-# 编译coreboot
+## 编译coreboot
 
-## 第一步需要编译出riscv工具链
+### 第一步需要编译出riscv工具链
 
 ```bash
 make crossgcc-riscv
 ```
 
-## 配置编译选项
+### 配置编译选项
 
 ```bash
 make menuconfig
@@ -52,9 +53,43 @@ make menuconfig
 - Payload->Add a payload，选中**An ELF executable payload**
 - Payload->Payload path and filename，使用默认值**payload.elf**
 
-## 编译
+### 编译
 
 拷贝bbl镜像freedom-u-sdk/work/riscv-pk/bbl到coreboot/payload.elf,然后在coreboot下执行make
+
+# 通过opensbi支持SBI
+
+## 获取源码
+
+```bash
+git clone -b opensbi-test git@github.com:hardenedlinux/coreboot-HiFiveUnleashed.git
+git clone git@github.com:sifive/freedom-u-sdk.git
+```
+## 编译linux
+
+在freedom-u-sdk目录下执行make。linux的elf镜像位于freedom-u-sdk/work/linux/vmlinux-stripped
+
+## 编译coreboot
+### 第一步需要编译出riscv工具链
+
+```bash
+make crossgcc-riscv
+```
+
+### 配置编译选项
+
+```bash
+make menuconfig
+```
+
+- Mainboard->Mainboard vendor，选中**SiFive**
+- Mainboard->Mainboard model，选中**HiFive Unleashed**
+- Payload->Add a payload，选中**An linux binary payload**
+- Payload->Payload path and filename，使用默认值**payload.bin**
+
+### 编译
+
+生成linux镜像`riscv64-elf-objcopy -O binary freedom-u-sdk/work/linux/vmlinux-stripped coreboot/payload.bin`，然后在coreboot下执行make
 
 # 烧录
 
