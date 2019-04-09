@@ -4,6 +4,26 @@ This article is a breif intro about how to run [coreboot](https://www.coreboot.o
 
 The current coreboot version( Jan 7 2019) is not able to run linux kernel on HiFive Unleashed yet. We've been using the workaround version([BBL provide SBI support](https://github.com/hardenedlinux/coreboot-HiFiveUnleashed/tree/HiFive-Unleashed-Test-Change) / [opensbi provide SBI support](https://github.com/hardenedlinux/coreboot-HiFiveUnleashed/tree/opensbi-test)) for test provided by HardenedLinux and BBL/linux provided by SiFive. Plz note that we will continue to upstreaming Unleashed code to the coreboot. W/ many thanks to Jonathan Neuschäfer, Philipp Hug and Ron Minnich.
 
+The difference of the boot process between sifive's firmware and coreboot
+
+```
+sifive's original firmware boot process:
+                                    +-----------+
++------+    +------+    +------+    | BBL       |
+| MSEL |--->| ZSBL |--->| FSBL |--->|   +-------+
++------+    +------+    +------+    |   | linux |
+                                    +---+-------+
+
+coreboot boot process:
+                      +---------------------------------------------------------------------+
+                      | coreboot                                                            |
++------+   +------+   |  +-----------+  +----------+  +----------+  +-----------------------+
+| MSEL |-->| ZSBL |-->|  | bootblock |->| romstage |->| ramstage |->| payload (BBL/opensbi) |
++------+   +------+   |  +-----------+  +----------+  +----------+  |             +-------+ |
+                      |                                             |             | linux | |
+                      +---------------------------------------------+-------------+-------+-+
+```
+
 # BBL provide SBI support
 
 ## Get the source code
