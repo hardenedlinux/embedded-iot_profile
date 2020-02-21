@@ -7,7 +7,9 @@
 jtag内部有两组寄存器，一个IR，一组DR。其中IR用于选择要操作的DR，即DR的地址选择寄存器。为了操作这两组寄存器，jtag内部定义了一个状态机，如下
 
 ![jtag状态机](https://www.xjtag.com/wp-content/uploads/tap_state_machine.gif)
-jtag最少由一下几个信号组成，复位信号是可选的
+
+
+jtag最少由以下几个信号组成，复位信号是可选的
 
 - TMS 用于状态机转换
 - TDO 数据输出
@@ -33,17 +35,17 @@ riscv通过在jtag中添加两个DR (dmi/dtmcs)。其中dmi实现了一个可读
 ```
 abits是来自dtmcs，表示地址的宽度
 
-写dmi时，op表示要执行的操作
-op=0，表示空操作
-op=1，从address读取数据到data
-op=2，把data写入到address
-op=3，保留
+写dmi时，op表示要执行的操作<br/>
+op=0，表示空操作<br/>
+op=1，从address读取数据到data<br/>
+op=2，把data写入到address<br/>
+op=3，保留<br/>
 
-读dmi是，op表示上一个操作的状态
-op=0，上一个操作成功
-op=1，保留
-op=2，上一个操作失败
-op=3，上一个操作还在进行中
+读dmi是，op表示上一个操作的状态<br/>
+op=0，上一个操作成功<br/>
+op=1，保留<br/>
+op=2，上一个操作失败<br/>
+op=3，上一个操作还在进行中<br/>
 
 ### 调试模块
 
@@ -57,9 +59,9 @@ riscv支持一次选择一个核心，也支持一次选择多个核心。
 
 选择多个核心时通过两个寄存器进行，一个hawindowsel，一个hawindow。选择逻辑如下
 
-> 如果要选择的核心编号为n
-> hawindowsel = n / 32
-> hawindow |= 1 << (n % 32)
+> 如果要选择的核心编号为n<br/>
+> hawindowsel = n / 32<br/>
+> hawindow |= 1 << (n % 32)<br/>
 
 hawindowsel为15比特，hawindow为32比特。所以最多可选择的核心数为：$2^{15} * 32 = 2^{20}$
 
@@ -244,8 +246,8 @@ openocd是一个针对嵌入性系统的片上调试软件。它通过[gdb远程
 ### server
 
 源码位于:
-> src/server/server.h
-> src/server/server.c
+> src/server/server.h<br/>
+> src/server/server.c<br/>
 
 openocd实习了一个抽象的server类，可以处理文件、管道和TCP链接，结构体描述如下：
 ```c
@@ -282,9 +284,9 @@ struct service {
 ```
 
 要实现一个服务，关键要实习三个方法：
-> new_connection，用于处理新的链接
-> input，用于处理客户端的输入
-> connection_closed，用于处理链接关闭，释放资源
+> new_connection，用于处理新的链接<br/>
+> input，用于处理客户端的输入<br/>
+> connection_closed，用于处理链接关闭，释放资源<br/>
 
 所有的服务构成一个链表，由系统提供的接口管理：
 ```c
@@ -321,8 +323,8 @@ int server_quit(void);
 ### gdb server
 
 源码位于：
-> src/server/gdb_server.h
-> src/server/gdb_server.c
+> src/server/gdb_server.h<br/>
+> src/server/gdb_server.c<br/>
 
 gdb server是openocd最主要的服务，它实现了绝大部分的gdb远程调试协议
 
@@ -331,9 +333,9 @@ gdb server是openocd最主要的服务，它实现了绝大部分的gdb远程调
 ### target
 
 源码位于：
-> src/target/target.h
-> src/target/target_type.h
-> src/target/target.c
+> src/target/target.h<br/>
+> src/target/target_type.h<br/>
+> src/target/target.c<br/>
 
 target是调试的主要接口，它实习了一些与具体平台无关的操作，与平台相关操作由target_type实现。
 
@@ -881,8 +883,8 @@ struct target_type {
 ### rtos
 
 源代码位于：
-> src/rtos/rtos.h
-> src/rtos/rtos.c
+> src/rtos/rtos.h<br/>
+> src/rtos/rtos.c<br/>
 
 rtos实现了gdb远程调试协议相关的部分，主要入口为`gdb_thread_packet`，位于`src/rtos/rtos.c`
 
@@ -918,8 +920,8 @@ struct rtos_type {
 #### jtag状态机
 
 代码实习位于：
-> src/jtag/interface.h
-> src/jtag/interface.c
+> src/jtag/interface.h<br/>
+> src/jtag/interface.c<br/>
 
 此部分代码是平台无关的，主要用于状态机的维护和切换。注意观察jtag的状态机，有的状态机有一个指向自己的箭头，这种状态被称为稳定态，这种状态下可以执行一些操作，状态机切换也只需要考虑这种情况。主要通过一个二维数组来记录怎么切换状态机（TMS需要发送怎么一段数据）。数组中记录这样的数据，如下
 ```c
@@ -1047,8 +1049,8 @@ tap_state_t tap_state_transition(tap_state_t current_state, bool tms);
 
 #####  命令
 系统定义了jtag接口可以执行的命令，源码位于
-> src/jtag/command.h
-> src/jtag/command.c
+> src/jtag/command.h<br/>
+> src/jtag/command.c<br/>
 
 代码里实现了大量的结构用于描述jtag操作
 ```c
@@ -1187,8 +1189,8 @@ struct tms_command {
 ##### 内存管理
 
 源码在
-> src/jtag/command.h
-> src/jtag/command.c
+> src/jtag/command.h<br/>
+> src/jtag/command.c<br/>
 
 应为系统需要不断的创建命令删除命令来操作jtag，为了防止内存碎片，系统实现了一个内存管理方法。通过如下结构记录一个内存块。
 ```c
@@ -1226,8 +1228,8 @@ void jtag_command_queue_reset(void);
 ##### 命令的辅助函数
 
 源码位于
-> src/jtag/minidriver.h
-> src/jtag/drivers/driver.c
+> src/jtag/minidriver.h<br/>
+> src/jtag/drivers/driver.c<br/>
 
 这些代码主要负责创建命令并添加到命令链表中，等待执行。主要接口如下
 ```c
@@ -1275,7 +1277,7 @@ int default_interface_jtag_execute_queue(void);
 ##### 驱动抽象结构
 
 源码位于
-> src/jtag/interface.h
+> src/jtag/interface.h<br/>
 
 驱动通过一个结构体描述
 ```c
@@ -1413,8 +1415,15 @@ struct jtag_interface {
 #### 对外接口
 
 源代码位于
-> src/jtag/jtag.h
-> src/jtag/core.c
+> src/jtag/jtag.h<br/>
+> src/jtag/core.c<br/>
 
 这部分主要是封装一些操作，以便其他模块调用。
 
+
+
+## 参考
+
+1. [riscv调试规范](https://riscv.org/specifications/debug-specification/)
+
+2. [riscv-openocd源码](https://github.com/riscv/riscv-openocd)
