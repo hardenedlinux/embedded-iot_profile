@@ -6,9 +6,9 @@ Open source tools used:
 1. Source code conversion tool [sv2v](https://github.com/zachjs/sv2v)  
 2. RTL synthesis tools [yosys](https://github.com/YosysHQ/yosys)  
 
-# install toolchain
+# Install toolchain
 
-## install sv2v
+## Install sv2v
 
 sv2v provides pre-built binaries, we can download from [release page] (https://github.com/zachjs/sv2v/releases) according to our own system, then unzip to executable path.
 
@@ -22,7 +22,7 @@ make
 
 When the command completes the executable file is located at `./bin/sv2v`. Copy the executable file to executable path, then the installation is complete.
 
-## install yosys
+## Install yosys
 
 If the system you are using is debian, you can install directly via apt-get.
 
@@ -311,7 +311,7 @@ The revised implementation is as follows:
   endfunction : conv_endian
 ```
 
-# synthesize
+# Synthesize
 
 First, we need to create a synthetic script(build.ys) for yosys. The content is as follows:  
 ```
