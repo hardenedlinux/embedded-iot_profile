@@ -311,6 +311,46 @@ The revised implementation is as follows:
   endfunction : conv_endian
 ```
 
+### strength
+The strength syntax is not synthesizable, so the relevant code needs to be modified. The relevant code is located in the `prim_generic_pad_wrapper.sv` file
+
+The code before modification is as follows:  
+```
+// driving strength attributes are not supported by verilator
+`ifdef VERILATOR
+  assign inout_io = (oe) ? out : 1'bz;
+`else
+  // different driver types
+  assign (strong0, strong1) inout_io = (oe && drv == STRONG_DRIVE) ? out : 1'bz;
+  assign (pull0, pull1)     inout_io = (oe && drv == WEAK_DRIVE)   ? out : 1'bz;
+  // pullup / pulldown termination
+  assign (highz0, weak1)    inout_io = pu;
+  assign (weak0, highz1)    inout_io = ~pd;
+  // fake trireg emulation
+  assign (weak0, weak1)     inout_io = (kp) ? inout_io : 1'bz;
+`endif
+```
+
+The modified code is as follows:
+```
+assign inout_io = (oe) ? out : 1'bz;
+/*
+// driving strength attributes are not supported by verilator
+`ifdef VERILATOR
+  assign inout_io = (oe) ? out : 1'bz;
+`else
+  // different driver types
+  assign (strong0, strong1) inout_io = (oe && drv == STRONG_DRIVE) ? out : 1'bz;
+  assign (pull0, pull1)     inout_io = (oe && drv == WEAK_DRIVE)   ? out : 1'bz;
+  // pullup / pulldown termination
+  assign (highz0, weak1)    inout_io = pu;
+  assign (weak0, highz1)    inout_io = ~pd;
+  // fake trireg emulation
+  assign (weak0, weak1)     inout_io = (kp) ? inout_io : 1'bz;
+`endif
+*/
+```
+
 # Synthesize
 
 First, we need to create a synthetic script(build.ys) for yosys. The content is as follows:  
