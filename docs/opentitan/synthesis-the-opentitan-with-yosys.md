@@ -89,7 +89,6 @@ There are a lot of declarative statements in systemverilog, and sv2v conversion 
 ```verilog
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_prim_all_0.1/rtl/prim_cipher_pkg.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_rstmgr_pkg_0.1/rtl/rstmgr_pkg.sv"
-`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_pwrmgr_pkg_0.1/rtl/pwrmgr_pkg.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ibex_ibex_pkg_0.1/rtl/ibex_pkg.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_top_earlgrey_pinmux_reg_0.1/rtl/autogen/pinmux_reg_pkg.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_hmac_0.1/rtl/hmac_pkg.sv"
@@ -101,13 +100,12 @@ There are a lot of declarative statements in systemverilog, and sv2v conversion 
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_alert_handler_component_0.1/rtl/alert_pkg.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_prim_all_0.1/rtl/prim_alert_pkg.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_prim_all_0.1/rtl/prim_esc_pkg.sv"
-`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_flash_ctrl_pkg_0.1/rtl/flash_ctrl_pkg.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_top_earlgrey_rv_plic_0.1/rtl/autogen/rv_plic_reg_pkg.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_gpio_0.1/rtl/gpio_reg_pkg.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_tlul_headers_0.1/rtl/tlul_pkg.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_flash_ctrl_0.1/rtl/flash_ctrl_reg_pkg.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_usbdev_0.1/rtl/usbdev_reg_pkg.sv"
-`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_constants_top_pkg_0/top_pkg.sv"
+`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_constants_top_pkg_0/rtl/top_pkg.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_rv_timer_0.1/rtl/rv_timer_reg_pkg.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ibex_ibex_tracer_0.1/rtl/ibex_tracer_pkg.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_spi_device_0.1/rtl/spi_device_reg_pkg.sv"
@@ -118,8 +116,22 @@ There are a lot of declarative statements in systemverilog, and sv2v conversion 
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/pulp-platform_riscv-dbg_0.1_0/pulp_riscv_dbg/src/dm_pkg.sv" 
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_prim_abstract_prim_pkg_0.1/prim_pkg.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_xbar_peri_0.1/tl_peri_pkg.sv"
-
-
+`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_rstmgr_0.1/rtl/rstmgr_reg_pkg.sv"
+`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_pwrmgr_pkg_0.1/rtl/pwrmgr_pkg.sv"
+`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_pwrmgr_0.1/rtl/pwrmgr_reg_pkg.sv"
+`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_flash_ctrl_pkg_0.1/rtl/flash_ctrl_pkg.sv"
+`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_flash_ctrl_pkg_0.1/rtl/flash_phy_pkg.sv"
+`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_pwrmgr_0.1/rtl/pwrmgr_cdc.sv"
+`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_pwrmgr_0.1/rtl/pwrmgr_slow_fsm.sv"
+`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_pwrmgr_0.1/rtl/pwrmgr_wake_info.sv"
+`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_pwrmgr_0.1/rtl/pwrmgr_fsm.sv"
+`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_pwrmgr_0.1/rtl/pwrmgr_reg_top.sv"
+`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_pwrmgr_0.1/rtl/pwrmgr.sv"
+`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_rstmgr_0.1/rtl/rstmgr_ctrl.sv"
+`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_rstmgr_0.1/rtl/rstmgr_info.sv"
+`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_rstmgr_0.1/rtl/rstmgr_por.sv"
+`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_rstmgr_0.1/rtl/rstmgr_reg_top.sv"
+`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_rstmgr_0.1/rtl/rstmgr.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_prim_abstract_flash_0/prim_flash.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_prim_abstract_rom_0/prim_rom.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_prim_abstract_ram_1p_0/prim_ram_1p.sv"
@@ -151,6 +163,7 @@ There are a lot of declarative statements in systemverilog, and sv2v conversion 
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ibex_ibex_core_0.1/rtl/ibex_register_file_ff.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ibex_ibex_core_0.1/rtl/ibex_ex_block.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ibex_ibex_core_0.1/rtl/ibex_if_stage.sv"
+`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ibex_ibex_core_0.1/rtl/ibex_wb_stage.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ibex_ibex_core_0.1/rtl/ibex_load_store_unit.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ibex_ibex_core_0.1/rtl/ibex_id_stage.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ibex_ibex_core_0.1/rtl/ibex_decoder.sv"
@@ -165,6 +178,7 @@ There are a lot of declarative statements in systemverilog, and sv2v conversion 
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_nmi_gen_0.1/rtl/nmi_gen_reg_top.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_nmi_gen_0.1/rtl/nmi_gen.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_prim_generic_flash_0/rtl/prim_generic_flash.sv"
+`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_aes_0.6/rtl/aes_prng.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_aes_0.6/rtl/aes_sbox_lut.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_aes_0.6/rtl/aes_ctr.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_aes_0.6/rtl/aes_control.sv"
@@ -245,6 +259,7 @@ There are a lot of declarative statements in systemverilog, and sv2v conversion 
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_tlul_common_0.1/rtl/tlul_assert_multiple.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_flash_ctrl_0.1/rtl/flash_mp.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_flash_ctrl_0.1/rtl/flash_phy.sv"
+`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_flash_ctrl_0.1/rtl/flash_phy_core.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_flash_ctrl_0.1/rtl/flash_rd_ctrl.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_flash_ctrl_0.1/rtl/flash_ctrl.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_flash_ctrl_0.1/rtl/flash_prog_ctrl.sv"
@@ -289,11 +304,153 @@ sv2v -DSYNTHESIS -I build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc
 
 ## code fix
 
-The code generated by sv2v cannot be used directly, and there are some problems that need to be fixed.
+The code generated by sv2v cannot be used directly, and there are some problems that need to be fixed. The following are my modifications:  
+```
+diff -r lowrisc_systems_top_earlgrey_verilator_0.1 ~/workspaces/opentitan/build/lowrisc_systems_top_earlgrey_verilator_0.1
+diff -r lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ibex_ibex_core_0.1/rtl/ibex_id_stage.sv /home/merle/workspaces/opentitan/build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ibex_ibex_core_0.1/rtl/ibex_id_stage.sv
+958c958
+< 
+---
+> /*
+1021c1021
+< 
+---
+> */
+diff -r lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ibex_ibex_tracer_0.1/rtl/ibex_tracer.sv /home/merle/workspaces/opentitan/build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ibex_ibex_tracer_0.1/rtl/ibex_tracer.sv
+65c65
+< 
+---
+> /*
+643c643
+<     */
+---
+>     * /
+913c913
+< 
+---
+> */
+diff -r lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_hmac_0.1/rtl/hmac_pkg.sv /home/merle/workspaces/opentitan/build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_hmac_0.1/rtl/hmac_pkg.sv
+51,52c51,53
+<     sha_word_t conv_data = {<<8{v}};
+<     conv_endian = (swap) ? conv_data : v ;
+---
+>     //sha_word_t conv_data = {<<8{v}};
+>     //conv_endian = (swap) ? conv_data : v ;
+>     conv_endian = (swap) ? {v[7:0], v[15:8], v[23:16], v[31:24]} : v ;
+diff -r lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_prim_all_0.1/rtl/prim_alert_receiver.sv /home/merle/workspaces/opentitan/build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_prim_all_0.1/rtl/prim_alert_receiver.sv
+174c174
+< 
+---
+> /*
+213c213
+< 
+---
+> */
+diff -r lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_prim_all_0.1/rtl/prim_alert_sender.sv /home/merle/workspaces/opentitan/build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_prim_all_0.1/rtl/prim_alert_sender.sv
+194c194
+< 
+---
+> /*
+235c235
+< 
+---
+> */
+diff -r lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_prim_all_0.1/rtl/prim_cipher_pkg.sv /home/merle/workspaces/opentitan/build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_prim_all_0.1/rtl/prim_cipher_pkg.sv
+44c44
+<   parameter logic [11:0][63:0] PRINCE_ROUND_CONST = {64'hC0AC29B7C97C50DD,
+---
+>   parameter logic [767:0] PRINCE_ROUND_CONST = {64'hC0AC29B7C97C50DD,
+diff -r lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_prim_all_0.1/rtl/prim_lfsr.sv /home/merle/workspaces/opentitan/build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_prim_all_0.1/rtl/prim_lfsr.sv
+302c302
+<   if (64'(LfsrType) == 64'("GAL_XOR")) begin : gen_gal_xor
+---
+>   if (LfsrType == "GAL_XOR") begin : gen_gal_xor
+327c327
+<   end else if (64'(LfsrType) == "FIB_XNOR") begin : gen_fib_xnor
+---
+>   end else if (LfsrType == "FIB_XNOR") begin : gen_fib_xnor
+392c392
+<     if (64'(LfsrType) == 64'("GAL_XOR")) begin
+---
+>     if (LfsrType == "GAL_XOR") begin
+402c402
+<     end else if (64'(LfsrType) == "FIB_XNOR") begin
+---
+>     end else if (LfsrType == "FIB_XNOR") begin
+438c438
+<   if (ExtSeedSVA) begin : gen_ext_seed_sva
+---
+> //  if (ExtSeedSVA) begin : gen_ext_seed_sva
+442,443c442,443
+<     `ASSERT(ExtDefaultSeedInputCheck_A, (seed_en_i && rst_ni) |=> lfsr_q == $past(seed_i))
+<   end
+---
+> //    `ASSERT(ExtDefaultSeedInputCheck_A, (seed_en_i && rst_ni) |=> lfsr_q == $past(seed_i))
+> //  end
+448c448
+<   if (LockupSVA) begin : gen_lockup_mechanism_sva
+---
+> //  if (LockupSVA) begin : gen_lockup_mechanism_sva
+450,452c450,452
+<     `ASSERT(LfsrLockupCheck_A, lfsr_en_i && lockup && !seed_en_i |=> !lockup)
+<   end
+< 
+---
+> //    `ASSERT(LfsrLockupCheck_A, lfsr_en_i && lockup && !seed_en_i |=> !lockup)
+> //  end
+> /*
+486c486
+< 
+---
+> */
+diff -r lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_prim_all_0.1/rtl/prim_prince.sv /home/merle/workspaces/opentitan/build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_prim_all_0.1/rtl/prim_prince.sv
+81c81
+<     data_state[0] ^= prim_cipher_pkg::PRINCE_ROUND_CONST[0][DataWidth-1:0];
+---
+>     data_state[0] ^= prim_cipher_pkg::PRINCE_ROUND_CONST[0 * 64 + DataWidth-1: 0 * 64 + 0];
+106c106
+<                             prim_cipher_pkg::PRINCE_ROUND_CONST[k][DataWidth-1:0];
+---
+>                             prim_cipher_pkg::PRINCE_ROUND_CONST[k * 64 + DataWidth - 1:k * 64 + 0];
+142c142
+<                              prim_cipher_pkg::PRINCE_ROUND_CONST[10-NumRoundsHalf+k][DataWidth-1:0];
+---
+>                              prim_cipher_pkg::PRINCE_ROUND_CONST[(10 - NumRoundsHalf + k) * 64 + DataWidth - 1 : (10 - NumRoundsHalf + k) * 64 + 0];
+167c167
+<               prim_cipher_pkg::PRINCE_ROUND_CONST[11][DataWidth-1:0];
+---
+>               prim_cipher_pkg::PRINCE_ROUND_CONST[11 * 64 + DataWidth - 1: 11 * 64 + 0];
+diff -r lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_prim_diff_decode_0/rtl/prim_diff_decode.sv /home/merle/workspaces/opentitan/build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_prim_diff_decode_0/rtl/prim_diff_decode.sv
+210c210
+< 
+---
+> /*
+259c259
+< 
+---
+> */
+diff -r lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_prim_generic_pad_wrapper_0/rtl/prim_generic_pad_wrapper.sv /home/merle/workspaces/opentitan/build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_prim_generic_pad_wrapper_0/rtl/prim_generic_pad_wrapper.sv
+34a35
+> /*
+48c49,50
+< 
+---
+> */
+>   assign inout_io = (oe) ? out : 1'bz;
+```
 
 ### Empty statement
 
 Since the assert statement is not synthesizable, no code will be generated. But there are some assertions in the source code based on the conditions, which will generate empty if statements. Yosys does not accept empty if statements.
+
+The following files have empty sentences that need to be corrected:  
+```
+	ibex_id_stage.sv
+	prim_diff_decode.sv
+	prim_lfsr.sv
+	prim_alert_receiver.sv
+	prim_alert_sender.sv
+```
 
 ### Stream operator
 
@@ -318,7 +475,7 @@ The revised implementation is as follows:
   endfunction : conv_endian
 ```
 
-### strength
+### Driving strength
 The strength syntax is not synthesizable, so the relevant code needs to be modified. The relevant code is located in the `prim_generic_pad_wrapper.sv` file
 
 The code before modification is as follows:  
@@ -365,6 +522,16 @@ ibex_tracer is a module for outputting debugging and tracing information. It onl
 ### prim_lfsr.sv
 
 The prim_lfsr module has a parameter named LfsrType, which is a string. Located in the file prim_lfsr.sv. There are some string comparison codes in the code. These codes use type conversion. Sv2v translates it into a function named sv2v_cast_64. This function will trigger an error. So modify the source code and compare the strings directly.
+
+Source code involved:
+```
+	prim_cipher_pkg.sv
+	prim_prince.sv
+```
+
+### Two-dimensional array
+
+There are restrictions on using two-dimensional arrays in verilog. sv2v converts the two-dimensional array declaration statement to a one-dimensional array when performing code conversion, but does not modify the code to access the two-dimensional array, so you need to manually modify the code to access the two-dimensional array.
 
 # Synthesize
 
