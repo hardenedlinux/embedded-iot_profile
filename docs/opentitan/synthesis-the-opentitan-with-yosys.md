@@ -83,6 +83,23 @@ git checkout 75639fe11cd00896a57c34576b8574b6152168df
 fusesoc --cores-root . run --target=sim --setup --build lowrisc:systems:top_earlgrey_verilator
 ```
 
+Note: The execution of fusesoc above will cause an error, and the following corrections need to be made:  
+```
+diff --git a/hw/ip/prim/util/primgen.py b/hw/ip/prim/util/primgen.py
+index 49e73436..d22b3214 100755
+--- a/hw/ip/prim/util/primgen.py
++++ b/hw/ip/prim/util/primgen.py
+@@ -364,8 +364,8 @@ def _generate_abstract_impl(gapi):
+         yaml.dump(abstract_prim_core,
+                   f,
+                   encoding="utf-8",
+-                  default_flow_style=False,
+-                  sort_keys=False)
++                  default_flow_style=False)#,
++                  #sort_keys=False)
+     print("Core file written to %s" % (abstract_prim_core_filepath, ))
+```
+
 Then rtl code will be generated in `build/lowrisc_systems_top_earlgrey_verilator_0.1/src`
 
 There are a lot of declarative statements in systemverilog, and sv2v conversion of these statements will not generate any code. And the source code in the opentitan project lacks the include statement, sv2v will not find some declarations and definitions, which will cause some errors. So I need to create a file includes all the source code, the following is the file(opentitan.sv) I used:  
