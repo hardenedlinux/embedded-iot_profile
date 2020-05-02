@@ -83,7 +83,10 @@ Then rtl code will be generated in `build/lowrisc_systems_top_earlgrey_verilator
 
 There are a lot of declarative statements in systemverilog, and sv2v conversion of these statements will not generate any code. And the source code in the opentitan project lacks the include statement, sv2v will not find some declarations and definitions, which will cause some errors. So I need to create a file includes all the source code, the following is the file(opentitan.sv) I used:  
 ```verilog
-`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ibex_ibex_core_0.1/rtl/ibex_pkg.sv"
+`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_prim_all_0.1/rtl/prim_cipher_pkg.sv"
+`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_rstmgr_pkg_0.1/rtl/rstmgr_pkg.sv"
+`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_pwrmgr_pkg_0.1/rtl/pwrmgr_pkg.sv"
+`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ibex_ibex_pkg_0.1/rtl/ibex_pkg.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_top_earlgrey_pinmux_reg_0.1/rtl/autogen/pinmux_reg_pkg.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_hmac_0.1/rtl/hmac_pkg.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_hmac_0.1/rtl/hmac_reg_pkg.sv"
@@ -100,7 +103,7 @@ There are a lot of declarative statements in systemverilog, and sv2v conversion 
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_tlul_headers_0.1/rtl/tlul_pkg.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_flash_ctrl_0.1/rtl/flash_ctrl_reg_pkg.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_usbdev_0.1/rtl/usbdev_reg_pkg.sv"
-`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_constants_top_pkg_0/rtl/top_pkg.sv"
+`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_constants_top_pkg_0/top_pkg.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_rv_timer_0.1/rtl/rv_timer_reg_pkg.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ibex_ibex_tracer_0.1/rtl/ibex_tracer_pkg.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_spi_device_0.1/rtl/spi_device_reg_pkg.sv"
@@ -222,7 +225,7 @@ There are a lot of declarative statements in systemverilog, and sv2v conversion 
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_tlul_socket_1n_0.1/rtl/tlul_err_resp.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_tlul_socket_1n_0.1/rtl/tlul_socket_1n.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_rv_dm_0.1/rtl/rv_dm.sv"
-`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_ip_rv_dm_0.1/rtl/tlul_adapter_host.sv"
+`include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_tlul_adapter_host_0.1/rtl/tlul_adapter_host.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_tlul_sram2tlul_0.1/rtl/sram2tlul.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_prim_generic_pad_wrapper_0/rtl/prim_generic_pad_wrapper.sv"
 `include "build/lowrisc_systems_top_earlgrey_verilator_0.1/src/lowrisc_tlul_adapter_sram_0.1/rtl/tlul_adapter_sram.sv"
