@@ -1,6 +1,7 @@
-# Introduction
 
-OpenTitan is the first open source project building a transparent, high-quality reference design and integration guidelines for silicon root of trust (RoT) chips. [Yosys](https://github.com/YosysHQ/yosys) is a framework for RTL synthesis tools. It currently has extensive Verilog-2005 support and provides a basic set of synthesis algorithms for various application domains. OpenTitan is a systemverilog project, but currently yosys only supports a small subset of systemverilog. So we need use [sv2v](https://github.com/zachjs/sv2v)  to convert the source code to verilog.
+# OpenTitan RTL synthesis with Yosys
+
+[OpenTitan](https://opentitan.org) is the first open source project building a transparent, high-quality reference design and integration guidelines for silicon root of trust (RoT) chips. [Yosys](https://github.com/YosysHQ/yosys) is a free/libre and open source framework for RTL synthesis tools. It currently has extensive Verilog-2005 support and provides a basic set of synthesis algorithms for various application domains. OpenTitan is a systemverilog project, but currently yosys only supports a small subset of systemverilog. So we need [sv2v](https://github.com/zachjs/sv2v) to convert the source code to verilog.
 
 Open source tools used:  
 1. Source code conversion tool [sv2v](https://github.com/zachjs/sv2v)  
@@ -566,11 +567,9 @@ Then use the following command to synthesize:
 yosys -s build.ys
 ```
 
+# WIP Summary
+
+For easier build, we released [the build script and workaround patch](https://github.com/hardenedlinux/hardenedlinux_profiles/tree/master/opentitan) here. ![The result of OpenTitan synthesis with Yosys:](https://github.com/hardenedlinux/hardenedlinux.github.io/raw/master/images/opentitan-rtl.png)
 
 
-
-
-
-
-
-
+You can take a look at LUTs usage. It's not looking good due to the LUTs might be over the limit of the chips I currently have. Both ice40( ~5k) and ecp5( ~20-~85k) won't make it. Either make the OpenTitan lose some "weight"( optimization/customization) or get more expensive FPGA products.  [Virtex-7 FPGA VC707](https://www.xilinx.com/products/boards-and-kits/ek-v7-vc707-g.html) and [Alveo U250](https://www.xilinx.com/products/boards-and-kits/alveo/u250.html) seems overkill( a bit?) and more importantly those high end device aren't support well by open/libre FPGA toolchain. [xc7](https://www.xilinx.com/products/silicon-devices/fpga/artix-7.html) should be an optional.
