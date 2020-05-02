@@ -75,7 +75,7 @@ autoconf
 make
 make install
 
-
+export PATH=$PATH:/tools/riscv/bin:/tools/verilator/4.028/bin
 fusesoc --cores-root . run --target=sim --setup --build lowrisc:systems:top_earlgrey_verilator
 ```
 
