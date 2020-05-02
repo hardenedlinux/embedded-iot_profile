@@ -355,6 +355,10 @@ assign inout_io = (oe) ? out : 1'bz;
 
 ibex_tracer is a module for outputting debugging and tracing information. It only has  input signals no output signals. There are a large number of non-synthesizable codes. Errors will occur during synthesis, so comment out the module body.
 
+### prim_lfsr.sv
+
+The prim_lfsr module has a parameter named LfsrType, which is a string. Located in the file prim_lfsr.sv. There are some string comparison codes in the code. These codes use type conversion. Sv2v translates it into a function named sv2v_cast_64. This function will trigger an error. So modify the source code and compare the strings directly.
+
 # Synthesize
 
 First, we need to create a synthetic script(build.ys) for yosys. The content is as follows:  
