@@ -76,6 +76,10 @@ make
 make install
 
 export PATH=$PATH:/tools/riscv/bin:/tools/verilator/4.028/bin
+
+git clone https://github.com/lowRISC/opentitan.git
+cd opentitan
+git checkout 75639fe11cd00896a57c34576b8574b6152168df
 fusesoc --cores-root . run --target=sim --setup --build lowrisc:systems:top_earlgrey_verilator
 ```
 
