@@ -351,6 +351,10 @@ assign inout_io = (oe) ? out : 1'bz;
 */
 ```
 
+### ibex_tracer.sv
+
+ibex_tracer is a module for outputting debugging and tracing information. It only has  input signals no output signals. There are a large number of non-synthesizable codes. Errors will occur during synthesis, so comment out the module body.
+
 # Synthesize
 
 First, we need to create a synthetic script(build.ys) for yosys. The content is as follows:  
