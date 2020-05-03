@@ -542,15 +542,15 @@ ibex_tracer is a module for outputting debugging and tracing information. It onl
 
 The prim_lfsr module has a parameter named LfsrType, which is a string. Located in the file prim_lfsr.sv. There are some string comparison codes in the code. These codes use type conversion. Sv2v translates it into a function named sv2v_cast_64. This function will trigger an error. So modify the source code and compare the strings directly.
 
+### Two-dimensional array
+
+There are restrictions on using two-dimensional arrays in verilog. sv2v converts the two-dimensional array declaration statement to a one-dimensional array when performing code conversion, but does not modify the code to access the two-dimensional array, so you need to manually modify the code to access the two-dimensional array.
+
 Source code involved:
 ```
 	prim_cipher_pkg.sv
 	prim_prince.sv
 ```
-
-### Two-dimensional array
-
-There are restrictions on using two-dimensional arrays in verilog. sv2v converts the two-dimensional array declaration statement to a one-dimensional array when performing code conversion, but does not modify the code to access the two-dimensional array, so you need to manually modify the code to access the two-dimensional array.
 
 # Synthesize
 
