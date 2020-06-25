@@ -565,7 +565,7 @@ module ibex_controller #(
 ```
 控制器内部维护了一个状态机，控制cpu的启动、运行和异常处理等操作，状态机如下：  
 
-![控制器状态机](.ibex_controller_status.png)
+![控制器状态机](https://raw.githubusercontent.com/hardenedlinux/embedded-iot_profile/master/resources/images/docs/opentitan/ibex.md-controller_fsm.png)
 
 - RESET: 复位后的默认状态  
 - BOOT\_SET: 复位后的一个状态用于，用于拷贝启动地址到取指单元  
