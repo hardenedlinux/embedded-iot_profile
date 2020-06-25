@@ -198,7 +198,7 @@ ibex\_core中包含以下模块分别负责如下工作：
 ## ibex_if_stage
 
 此模块被ID模块控制，从指令存储器获取指令并传递给ID模块。接口如下：
-```
+```systemverilog
 module ibex_if_stage #(
     parameter int unsigned DmHaltAddr        = 32'h1A110800,
     parameter int unsigned DmExceptionAddr   = 32'h1A110808,
@@ -284,7 +284,7 @@ module ibex_if_stage #(
 
 
 取指地址选择相关代码如下：
-```
+```systemverilog
   // extract interrupt ID from exception cause
   assign irq_id         = {exc_cause}; // ID模块传递过来的异常原因
   assign unused_irq_bit = irq_id[5];   // MSB distinguishes interrupts from exceptions
@@ -315,7 +315,7 @@ module ibex_if_stage #(
 
 上面代码将产生一个取指的地址fetch\_addr\_n，此地址将配合pc\_set\_i，传递给一个实际负责取指的模块ibex\_icache / ibex\_prefetch\_buffer，用于设定当前从何处开始取指令，此模块负责取指令并维护地址信息。它们由类似的接口，接口如下：
 
-```
+```systemverilog
 module ibex_prefetch_buffer (
 	// 时钟和复位信号
     input  logic        clk_i,
@@ -351,7 +351,7 @@ module ibex_prefetch_buffer (
 ```
 
 以上模块会判断当前指令是否为压缩指令，来维护取指地址。输出的32bit数据需要通过ibex\_compressed\_decoder模块进行指令解压。指令解压模块是一个组合逻辑模块，把对应的压缩指令转换为对应的普通指令。ibex\_compressed\_decoder接口如下：  
-```
+```systemverilog
 module ibex_compressed_decoder (
 	// 时钟复位信号
     input  logic        clk_i,
@@ -366,7 +366,7 @@ module ibex_compressed_decoder (
 ```
 
 ibex为了防止测信道攻击，在IF中添加了一个模块ibex\_dummy\_instr，此模块可以随机生成一些指令（ADD/MUL/DIV/AND，目标寄存器为X0，不影响执行结果）插入到正常的指令序列中。此模块使用线性反馈移位寄存器来产生伪随机数，然后用伪随机数来产生随机指令。为了实现此功能ibex添加了两个寄存器CPUCTRL/SECURESEED，这两个寄存器的功能如下：
-- CPUCTRL，其中由两个位于与此功能相关：dummy\_instr\_en，dummy\_instr\_mask。dummy\_instr\_en用于使能此功能，dummy\_instr\_mask用于设定插入指令的频率。
+- CPUCTRL，其中由两个位域与此功能相关：dummy\_instr\_en，dummy\_instr\_mask。dummy\_instr\_en用于使能此功能，dummy\_instr\_mask用于设定插入指令的频率。
 - SECURESEED，用于设定伪随机数发生器的种子
 
 | 值   | 描述                              |
@@ -382,7 +382,7 @@ ibex为了防止测信道攻击，在IF中添加了一个模块ibex\_dummy\_inst
 此模块是整个ibex的核心，其他模块都由此模块控制。它主要由译码模块和控制模块组成。
 
 译码模块是一个组合逻辑模块，主要负责解析出指令中要访问的寄存器地址立即数等，接口如下：
-```
+```systemverilog
 module ibex_decoder #(
     parameter bit RV32E           = 0, // 是否支持E扩展，不支持需要输出非法指令信号
     parameter bit RV32M           = 1, // 是否支持M扩展，不支持需要输出非法指令信号
@@ -466,7 +466,7 @@ module ibex_decoder #(
 );
 ```
 控制器接口如下：  
-```
+```systemverilog
 module ibex_controller #(
     parameter bit WritebackStage = 0
  ) (
@@ -582,7 +582,7 @@ module ibex_controller #(
 ## ibex_cs_register
 
 此模块有一个类sram的接口，用于读写CSR寄存器。并且被ID模块控制，在中断发生和退出时进行状态保存和恢复。并输出一些寄存器的值给其他模块：输出一些寄存器的值给取指模块，在异常发生和异常退出时进行取指地址选择；输出一些pmp相关的寄存器的值给pmp模块，进行pmp地址访问控制。以及接受一些事件信号，并对这些事件计数。其接口如下：
-```
+```systemverilog
 module ibex_cs_registers #(
     parameter bit          DbgTriggerEn      = 0,
     parameter bit          DataIndTiming     = 1'b0,
@@ -687,7 +687,7 @@ module ibex_cs_registers #(
 ```
 
 此模块中有大量的寄存器定义，主要实现读写寄存器操着。读写逻辑如下：  
-```
+```systemverilog
 // 读的简化逻辑如下
 always_comb begin
   unique case (csr_addr_i)
@@ -724,7 +724,7 @@ always_comb begin
 ```
 
 其中，有些寄存器只读，比如misa：  
-```
+```systemverilog
   // misa
   localparam logic [31:0] MISA_VALUE =
       (0                 <<  0)  // A - Atomic Instructions extension
@@ -749,7 +749,7 @@ always_comb begin
 ```
 
 其中，有一些寄存器由外部信号构成，比如mip：  
-```
+```systemverilog
   assign mip.irq_software = irq_software_i;
   assign mip.irq_timer    = irq_timer_i;
   assign mip.irq_external = irq_external_i;
@@ -769,7 +769,7 @@ always_comb begin
   end
 ```
 pmp的特殊处理，pmp的写信号与pmp_cfg是否上锁有关，相关代码如下
-```
+```systemverilog
       // 判断是否加锁，加锁写入无效
       assign pmp_cfg_we[i] = csr_we_int & ~pmp_cfg[i].lock &
                              (csr_addr == (CSR_OFF_PMP_CFG + (i[11:0] >> 2)));
@@ -787,7 +787,7 @@ pmp的特殊处理，pmp的写信号与pmp_cfg是否上锁有关，相关代码�
 ```
 
 还有一些代码用于在异常发生时保存恢复状态
-```
+```systemverilog
     // exception controller gets priority over other writes
     unique case (1'b1)
       
@@ -856,7 +856,7 @@ pmp的特殊处理，pmp的写信号与pmp_cfg是否上锁有关，相关代码�
 ```
 
 riscv规范定义了一组性能计数器，只有几个计数器含义被确定了，其他的可以由具体平台自定义。ibex计数事件如下
-```
+```systemverilog
   // event selection (hardwired) & control
   always_comb begin : gen_mhpmcounter_incr
 
@@ -887,7 +887,7 @@ riscv规范定义了一组性能计数器，只有几个计数器含义被确定
 ```
 
 计数器模块接口如下
-```
+```systemverilog
 module ibex_counter #(
   parameter int CounterWidth = 32 // 计数器宽度
 ) (
@@ -906,7 +906,7 @@ module ibex_counter #(
 ## ibex_ex_block
 
 此模块负责主要的计算任务，模块接口如下：
-```
+```systemverilog
 module ibex_ex_block #(
     parameter bit RV32M                    = 1,     // 是否支持M扩展
     parameter bit RV32B                    = 0,     // 是否支持B扩展
@@ -984,7 +984,7 @@ ibex只使用了一个33比特的数学右移。通常最高位清0，数学右�
 ## ibex_register_file
 
 接口如下：
-```
+```systemverilog
 module ibex_register_file #(
     parameter bit          RV32E             = 0,
     parameter int unsigned DataWidth         = 32,
@@ -1021,7 +1021,7 @@ module ibex_register_file #(
 ## ibex_load_store_unit
 
 此模块用于连接数据存储器，支持非对齐内存访问。其接口如下：  
-```
+```systemverilog
 module ibex_load_store_unit
 (
     // 时钟和复位信号
@@ -1076,7 +1076,7 @@ module ibex_load_store_unit
 ibex为32位的riscv处理器，总线宽度32位，访问数据宽度分别为8、16、32位，所以最多需要两次内存访问。系统定义了一个状态位handle\_misaligned\_q标识当前是不是正在进行非对齐访问（访问第二个字）。
 
 在非对齐访问时，需要设置字节使能信号，代码如下：
-```
+```systemverilog
   ///////////////////
   // BE generation //
   ///////////////////
@@ -1134,7 +1134,7 @@ ibex为32位的riscv处理器，总线宽度32位，访问数据宽度分别为8
 ```
 
 可以把写入的值，根据字节偏移量循环移位一下，得到真正要写入的值：  
-```
+```systemverilog
   always_comb begin
     unique case (data_offset)
       2'b00:   data_wdata =  lsu_wdata_i[31:0];
@@ -1147,7 +1147,7 @@ ibex为32位的riscv处理器，总线宽度32位，访问数据宽度分别为8
 ```
 
 读取时，读取两次，把前一次结果和后一次结果组合到一起就可以获取最终的结果。代码如下：  
-```
+```systemverilog
   // register for unaligned rdata
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
@@ -1170,7 +1170,7 @@ ibex为32位的riscv处理器，总线宽度32位，访问数据宽度分别为8
 ```
 
 读取到的结果还需要进行位扩展操作，代码如下：  
-```
+```systemverilog
   ////////////////////
   // Sign extension //
   ////////////////////
@@ -1256,7 +1256,7 @@ ibex为32位的riscv处理器，总线宽度32位，访问数据宽度分别为8
 ## ibex_wb_stage
 
 回写模块，主要负责把计算结果回写到内存，或把从内存加载的值回写到寄存器。接口如下：  
-```
+```systemverilog
 module ibex_wb_stage #(
   parameter bit WritebackStage = 1'b0                      // 配置当前模块是否为一级流水线
 ) (
@@ -1295,7 +1295,7 @@ module ibex_wb_stage #(
 ```
 
 当不使用流水线时，信号直接链接：  
-```
+```systemverilog
 assign ready_wb_o    = 1'b1;
 assign rf_waddr_wb_o         = rf_waddr_id_i;
 assign rf_wdata_wb_mux[0]    = rf_wdata_id_i;
@@ -1306,7 +1306,7 @@ assign rf_wdata_wb_o = rf_wdata_wb_mux_we[0] ? rf_wdata_wb_mux[0] : rf_wdata_wb_
 assign rf_we_wb_o    = |rf_wdata_wb_mux_we;
 ```
 当使用流水线时，信号被触发器缓存，在下一个时钟时进行实际的操作：  
-```
+```systemverilog
 always_ff @(posedge clk_i) begin
   if(en_wb_i) begin
     rf_we_wb_q      <= rf_we_id_i;
