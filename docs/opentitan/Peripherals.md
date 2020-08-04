@@ -1560,7 +1560,7 @@ opentitan i2c可以通过软件控制，代码如下：
 
 ## padctrl
 
-此模块由好几个模块组成。
+此模块由好几个模块组成。由于padctrl的io控制模块需要靠近pad，寄存器相关的模块与soc比较靠近，所以padctrl被拆分为多个模块。在理解此部分代码前请参考[Padctrl Technical Specification](https://docs.opentitan.org/hw/ip/padctrl/doc/)
 
 `padring`位于`hw/ip/padctrl/rtl/padring.sv`中，主要通过`prim_pad_wrapper`实现了一组端口输入输出以及属性控制。接口如下：
 
@@ -1682,5 +1682,255 @@ module padctrl import padctrl_reg_pkg::*; #(
   output logic[NDioPads-1:0][AttrDw-1:0] dio_attr_o
 );
 ```
+
 此模块内部通过获取寄存器输出值，合并为两个连续数组输出。寄存器的实际实现来自`padctrl_reg_top`位于`hw/ip/padctrl/rtl/padctrl_reg_top.sv`
+
+## pinmux
+
+opentitan有两种外设：一种叫`Muxed Peripheral`没有专用io端口；一种叫`Dedicated Peripheral`具有专用的io端口。pinmux提供`Muxed IO`与`pad`的映射关系，并且提供休眠，休眠时输出状态可配置，并在io口上出现特定信号时唤醒。在理解此部分代码之前请参考[Pinmux Technical Specification](https://docs.opentitan.org/hw/ip/pinmux/doc/)
+
+模块顶层接口如下：
+
+```systemverilog
+module pinmux import pinmux_pkg::*; import pinmux_reg_pkg::*; (
+  // 时钟和复位
+  input                            clk_i,
+  input                            rst_ni,
+
+  // 一直开启的慢速时钟，在休眠时依旧工作
+  input                            clk_aon_i,
+  input                            rst_aon_ni,
+
+  // 接受到唤醒信号
+  output logic                     aon_wkup_req_o,
+
+  // 休眠使能
+  input                            sleep_en_i,
+
+  // Strap sample request
+  input  lc_strap_req_t            lc_pinmux_strap_i,
+  output lc_strap_rsp_t            lc_pinmux_strap_o,
+
+  // 总线接口
+  input  tlul_pkg::tl_h2d_t        tl_i,
+  output tlul_pkg::tl_d2h_t        tl_o,
+
+  // Muxed Peripheral 接口
+  input        [NMioPeriphOut-1:0] periph_to_mio_i,
+  input        [NMioPeriphOut-1:0] periph_to_mio_oe_i,
+  output logic [NMioPeriphIn-1:0]  mio_to_periph_o,
+
+  // Dedicated Peripheral 接口
+  input        [NDioPads-1:0]      periph_to_dio_i,
+  input        [NDioPads-1:0]      periph_to_dio_oe_i,
+  output logic [NDioPads-1:0]      dio_to_periph_o,
+
+  // Pad side 连接到padring
+  // MIOs
+  output logic [NMioPads-1:0]      mio_out_o,
+  output logic [NMioPads-1:0]      mio_oe_o,
+  input        [NMioPads-1:0]      mio_in_i,
+  // DIOs
+  output logic [NDioPads-1:0]      dio_out_o,
+  output logic [NDioPads-1:0]      dio_oe_o,
+  input        [NDioPads-1:0]      dio_in_i
+);
+```
+
+`Dedicated Peripheral`不需要进行io映射，直接连接，代码如下：
+
+```systemverilog
+  // Inputs are just fed through
+  assign dio_to_periph_o = dio_in_i;
+
+  for (genvar k = 0; k < NDioPads; k++) begin : gen_dio_out
+    // Since this is a DIO, this can be determined at design time
+    if (DioPeriphHasSleepMode[k]) begin : gen_sleep
+      assign dio_out_o[k] = (sleep_en_q) ? dio_out_sleep_q[k] : periph_to_dio_i[k];
+      assign dio_oe_o[k]  = (sleep_en_q) ? dio_oe_sleep_q[k]  : periph_to_dio_oe_i[k];
+    end else begin : gen_nosleep
+      assign dio_out_o[k] = periph_to_dio_i[k];
+      assign dio_oe_o[k]  = periph_to_dio_oe_i[k];
+    end
+  end
+```
+
+`Muxed Peripheral` io需要映射。通过两个寄存器分别配置输入映射（`periph_insel`）和输出映射（`mio_outsel`）。寄存器含义如下：
+
+| periph_insel | 含义 |
+|--------------|------|
+| 0            | 输入连接到低电平 |
+| 1            | 输入连接到高电平 |
+| n>=2         | 输入连接到第n-2个 MIO |
+
+| mio_outsel | 含义 |
+|------------|------|
+| 0          | 输出低电平 |
+| 1          | 输出高电平 |
+| 2          | 输出高阻态 |
+| n >=3      | 输出连接到低n-3个 Muxed Peripheral |
+
+代码如下：
+
+```systemverilog
+  //////////
+  // 输入 //
+  //////////
+
+  for (genvar k = 0; k < NMioPeriphIn; k++) begin : gen_mio_periph_in
+    logic [2**$clog2(NMioPads+2)-1:0] data_mux;
+    // 低位补两个分别对应：低电平 高电平
+    assign data_mux = $bits(data_mux)'({mio_in_i, 1'b1, 1'b0});
+    // 通过寄存器选择输入由
+    assign mio_to_periph_o[k] = data_mux[reg2hw.periph_insel[k].q];
+  end
+
+  //////////
+  // 输出 //
+  //////////
+
+  for (genvar k = 0; k < NMioPads; k++) begin : gen_mio_out
+    logic sleep_en;
+    logic [2**$clog2(NMioPeriphOut+3)-1:0] data_mux, oe_mux, sleep_mux;
+    // 低位补三位分别对应：低电平 高电平 高阻态（设置为输入）
+    assign data_mux  = $bits(data_mux)'({periph_to_mio_i, 1'b0, 1'b1, 1'b0});
+    assign oe_mux    = $bits(oe_mux)'({periph_to_mio_oe_i,  1'b0, 1'b1, 1'b1});
+    assign sleep_mux = $bits(sleep_mux)'({MioPeriphHasSleepMode,  1'b1, 1'b1, 1'b1});
+
+    // check whether this peripheral can actually go to sleep
+    assign sleep_en = sleep_mux[reg2hw.mio_outsel[k].q] & sleep_en_q;
+    // index using configured outsel
+    assign mio_out_o[k] = (sleep_en) ? mio_out_sleep_q[k] : data_mux[reg2hw.mio_outsel[k].q];
+    assign mio_oe_o[k]  = (sleep_en) ? mio_oe_sleep_q[k]  : oe_mux[reg2hw.mio_outsel[k].q];
+  end
+```
+
+上面`mio_out_sleep_q`和`mio_oe_sleep_q`用于休眠状态下的输出控制。休眠控制由一个寄存器`sleep_val`控制，寄存器定义如下：
+
+| sleep_val | 含义 |
+|-----------|------|
+| 0         | 低电平 |
+| 1         | 高电平 |
+| 2         | 高阻态（设置为输入） |
+| 3         | 保持休眠之前的状态 |
+
+代码如下：
+
+```systemverilog
+  for (genvar k = 0; k < NDioPads; k++) begin : gen_dio_sleep
+    // DioPeriphHasSleepMode[k]用于使能低k个io的休眠功能
+    if (DioPeriphHasSleepMode[k]) begin : gen_warl_connect
+      assign hw2reg.dio_out_sleep_val[k].d = dio_out_sleep_val_q[k];
+
+      assign dio_out_sleep_val_d[k] = (reg2hw.dio_out_sleep_val[k].qe) ?
+                                      reg2hw.dio_out_sleep_val[k].q :
+                                      dio_out_sleep_val_q[k];
+      // 休眠输出值
+      assign dio_out_sleep_d[k] = (dio_out_sleep_val_q[k] == 0) ? 1'b0 :
+                                  (dio_out_sleep_val_q[k] == 1) ? 1'b1 :
+                                  (dio_out_sleep_val_q[k] == 2) ? 1'b0 : dio_out_o[k];
+
+      // 休眠输出使能
+      assign dio_oe_sleep_d[k] = (dio_out_sleep_val_q[k] == 0) ? 1'b1 :
+                                 (dio_out_sleep_val_q[k] == 1) ? 1'b1 :
+                                 (dio_out_sleep_val_q[k] == 2) ? 1'b0 : dio_oe_o[k];
+    end else begin : gen_warl_tie0
+      assign hw2reg.dio_out_sleep_val[k].d = 2'b10;
+      assign dio_out_sleep_val_d[k] = 2'b10;
+      assign dio_out_sleep_d[k]     = '0;
+      assign dio_oe_sleep_d[k]      = '0;
+    end
+  end
+```
+
+休眠唤醒由多组，每一组可以：选择使用`Muxed Peripheral`或`Dedicated Peripheral`，并选择第几个io；设定唤醒方式（禁用、下降沿、上升沿、低电平、高电平），电平触发时可以设定电平稳定时间。io选择代码如下：
+
+```systemverilog
+    assign pin_value = (reg2hw.wkup_detector[k].miodio.q)           ?
+                       dio_data_mux[reg2hw.wkup_detector_padsel[k]] :
+                       mio_data_mux[reg2hw.wkup_detector_padsel[k]];
+```
+
+唤醒代码由`pinmux_wkup`实现，接口如下：
+
+```systemverilog
+module pinmux_wkup import pinmux_pkg::*; import pinmux_reg_pkg::*; #(
+  parameter int Cycles = 4
+) (
+  // 时钟和复位
+  input                    clk_i,
+  input                    rst_ni,
+
+  // 一直开启的慢速时钟和复位
+  input                    clk_aon_i,
+  input                    rst_aon_ni,
+
+  input                    wkup_en_i,    // 唤醒使能
+  input                    filter_en_i,  // 滤除杂波使能
+  input wkup_mode_e        wkup_mode_i,  // 唤醒模式
+  input [WkupCntWidth-1:0] wkup_cnt_th_i,// 电平唤醒的计数器
+  input                    pin_value_i,  // 引脚值
+  // Signals to/from cause register.
+  // They are synched to/from the AON clock internally
+  input                    wkup_cause_valid_i,
+  input                    wkup_cause_data_i,
+  output                   wkup_cause_data_o,
+  // This signal is running on the AON clock
+  // and is held high as long as the cause register
+  // has not been cleared.
+  output logic             aon_wkup_req_o//输出唤醒请求
+);
+```
+
+通过`prim_filter`滤除杂波，代码如下：
+
+```systemverilog
+  prim_filter #(
+    .Cycles(Cycles)
+  ) i_prim_filter (
+    .clk_i    ( clk_aon_i       ),
+    .rst_ni   ( rst_aon_ni      ),
+    .enable_i ( aon_filter_en_q ),
+    .filter_i ( pin_value_i     ),
+    .filter_o ( aon_filter_out  )
+  );
+```
+
+通过如下代码检测唤醒条件：
+
+```systemverilog
+  logic aon_rising, aon_falling;
+  assign aon_falling = ~aon_filter_out_d &  aon_filter_out_q; // 检测下降沿
+  assign aon_rising  =  aon_filter_out_d & ~aon_filter_out_q; // 检测上升沿
+
+  logic aon_cnt_en, aon_cnt_eq_th;
+  logic [WkupCntWidth-1:0] aon_cnt_d, aon_cnt_q;
+  assign aon_cnt_d = (aon_cnt_eq_th) ? '0                :
+                     (aon_cnt_en)    ?  aon_cnt_q + 1'b1 : '0; // 对电平计数
+
+  assign aon_cnt_eq_th = aon_cnt_q == aon_wkup_cnt_th_q; // 检测计数器达到触发条件
+
+  logic aon_wkup_pulse;
+  always_comb begin : p_mode
+    aon_wkup_pulse = 1'b0;
+    aon_cnt_en     = 1'b0;
+    if (aon_wkup_en_q) begin
+      // 根据模式输出唤醒信号
+      unique case (aon_wkup_mode_q)
+        Negedge:   aon_wkup_pulse = aon_falling;
+        Posedge:   aon_wkup_pulse = aon_rising;
+        Edge:      aon_wkup_pulse = aon_rising | aon_falling;
+        LowTimed: begin
+          aon_cnt_en = ~aon_filter_out_d; // 低电平时控制计数器自增
+          aon_wkup_pulse = aon_cnt_eq_th;
+        end
+        HighTimed: begin
+          aon_cnt_en = aon_filter_out_d;  // 高电平时控制计数器自增
+          aon_wkup_pulse = aon_cnt_eq_th;
+        end
+        default: ; // also covers "Disabled"
+      endcase
+    end
+  end
+```
 
