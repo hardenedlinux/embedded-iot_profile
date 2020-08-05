@@ -1934,3 +1934,81 @@ module pinmux_wkup import pinmux_pkg::*; import pinmux_reg_pkg::*; #(
   end
 ```
 
+## timer
+
+在理解此部分代码前请参考[Timer HWIP Technical Specification](https://docs.opentitan.org/hw/ip/rv_timer/doc/)
+
+opentitan的timer有两个控制寄存器`prescaler`和`setp`。`prescaler`用于分频，`setp`用于一次增加的值。伪代码如下：
+
+```c
+    while (1) {
+        tick_count++;
+        if (tick_count >= prescaler) {
+            tick_count = 0;
+            mtime = mtime + setp
+        }
+    }
+```
+
+组要代码位于`hw/ip/rv_timer/rtl/time_core.sv`中，接口如下：
+
+```systemverilog
+module timer_core #(
+  /* N为计时器个数
+   * 计时器共用mtime，有独立的mtimecmp
+   */
+  parameter int N = 1
+) (
+  // 时钟和复位信号
+  input clk_i,
+  input rst_ni,
+
+  // 计时器控制信号
+  input        active,
+  input [11:0] prescaler,
+  input [ 7:0] step,
+
+  output logic        tick,    // 当内部计数器大于等于prescaler时有效，用于锁存mtime_d
+  output logic [63:0] mtime_d,
+  input        [63:0] mtime,
+  input        [63:0] mtimecmp [N],
+
+  output logic [N-1:0] intr   // 中断信号
+);
+```
+
+内部维护了一个计数器`tick_count`，代码如下：
+
+```systemverilog
+  logic [11:0] tick_count;
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin : generate_tick
+    if (!rst_ni) begin // 复位清零
+      tick_count <= 12'h0;
+    end else if (!active) begin // active无效时，计算器不工作
+      tick_count <= 12'h0;
+    end else if (tick_count == prescaler) begin // 达到计算目标清零
+      tick_count <= 12'h0;
+    end else begin
+      tick_count <= tick_count + 1'b1; // 计数器加1
+    end
+  end
+```
+
+当计数器达到`prescaler`后更新`mtime`，并尝试比较`mtime`与`mtimecmp`输出中断信息，代码如下：
+
+```systemverilog
+  // 输出此信号，用于锁存mtime_d
+  assign tick = active & (tick_count >= prescaler);
+
+  // 下一个mtime
+  assign mtime_d = mtime + 64'(step);
+
+  // 比较mtime与mtimecmp输出中断信号
+  for (genvar t = 0 ; t < N ; t++) begin : gen_intr
+    assign intr[t] = active & (mtime >= mtimecmp[t]);
+  end
+```
+
+在`hw/ip/rv_timer/rtl/rv_timer_reg_top.sv`中实现了寄存器。在`hw/ip/rv_timer/rtl/rv_timer.sv`中整合了寄存器和计时器，并连接到总线。
+
