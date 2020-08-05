@@ -2012,3 +2012,146 @@ module timer_core #(
 
 在`hw/ip/rv_timer/rtl/rv_timer_reg_top.sv`中实现了寄存器。在`hw/ip/rv_timer/rtl/rv_timer.sv`中整合了寄存器和计时器，并连接到总线。
 
+## plic
+
+plic为中断控制器，用于从多个中断源中挑出一个中断输出给cpu。在理解此模块之前请参考[Interrupt Controller Technical Specification](https://docs.opentitan.org/hw/ip/rv_plic/doc/)
+
+opentitan plic中断的关键代码位于`hw/ip/rv_plic/rtl/rv_plic_gateway.sv`中，`rv_plic_gateway`接口如下：
+
+```systemverilog
+module rv_plic_gateway #(
+  parameter int N_SOURCE = 32 // 中断源个数
+) (
+  // 时钟和复位
+  input clk_i,
+  input rst_ni,
+
+  input [N_SOURCE-1:0] src,     // 中断源
+  input [N_SOURCE-1:0] le,      // 设置中断触发模式：0->电平，1->上升沿
+
+  input [N_SOURCE-1:0] claim,   // $onehot0(claim)，中断挂起（正在处理的中断）
+  input [N_SOURCE-1:0] complete,// $onehot0(complete)，中断完成
+
+  output logic [N_SOURCE-1:0] ip// 输出中断标识位
+);
+```
+
+通过如下代码，处理中断的触发模式：
+
+```systemverilog
+  // 记录上一个周期src到src_d
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) src_d <= '0;
+    else         src_d <= src;
+  end
+
+  // 根据模式计算中断请求
+  always_comb begin
+    for (int i = 0 ; i < N_SOURCE; i++) begin
+      set[i] = (le[i]) ? src[i] & ~src_d[i] : src[i] ;
+    end
+  end
+```
+
+通过如下代码更新计算`ip`:
+
+```systemverilog
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      ip <= '0;
+    end else begin
+      // 挂起中断从ip中排除
+      ip <= (ip | (set & ~ia & ~ip)) & (~(ip & claim));
+    end
+  end
+
+  // ia为active的中断
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      ia <= '0;
+    end else begin
+      // 完成的中断需要从ia中排除
+      ia <= (ia | (set & ~ia)) & (~(ia & complete & ~ip));
+    end
+  end
+```
+
+`rv_plic_gateway`一边和中断请求引脚连接，一边和`rc_plic_target`连接。每一个riscv的hart对应一个`rc_plic_target`。`rc_plic_target`用于选择出优先级最高的中断传递给riscv核处理。相关配置有：中断使能，优先级，阀值。`rc_plic_target`接口如下：
+
+```systemverilog
+module rv_plic_target #(
+  parameter int N_SOURCE = 32,
+  parameter int MAX_PRIO = 7,
+
+  // Local param (Do not change this through parameter
+  localparam int SrcWidth  = $clog2(N_SOURCE+1),  // derived parameter
+  localparam int PrioWidth = $clog2(MAX_PRIO+1)   // derived parameter
+) (
+  // 时钟和复位
+  input clk_i,
+  input rst_ni,
+
+  input [N_SOURCE-1:0]  ip, // 中断挂起寄存器
+  input [N_SOURCE-1:0]  ie, // 中断使能寄存器
+
+  input [PrioWidth-1:0] prio [N_SOURCE], // 中断优先级
+  input [PrioWidth-1:0] threshold,       // 中断阀值
+
+  output logic            irq,           // 连接到hart的中断请求信息
+  output logic [SrcWidth-1:0] irq_id     // 选择出的中断的中断编号
+);
+```
+
+为了选择出优先级最高的异常，创建了一颗树形的比较器，代码如下：
+
+```systemverilog
+  // 计算N_SOURCE个叶子节点的完全二叉树有多高
+  localparam int NumLevels = $clog2(N_SOURCE);
+
+  // 记录中断信息
+  logic [2**(NumLevels+1)-2:0]            is_tree;
+  logic [2**(NumLevels+1)-2:0][SrcWidth-1:0]  id_tree;
+  logic [2**(NumLevels+1)-2:0][PrioWidth-1:0] max_tree;
+
+  for (genvar level = 0; level < NumLevels+1; level++) begin : gen_tree
+    localparam int Base0 = (2**level)-1;
+    localparam int Base1 = (2**(level+1))-1;
+
+    for (genvar offset = 0; offset < 2**level; offset++) begin : gen_level
+      localparam int Pa = Base0 + offset;
+      localparam int C0 = Base1 + 2*offset;
+      localparam int C1 = Base1 + 2*offset + 1;
+
+      if (level == NumLevels) begin : gen_leafs
+        // 树的叶子节点，填入中断信息
+        if (offset < N_SOURCE) begin : gen_assign
+          assign is_tree[Pa]  = ip[offset] & ie[offset]; // 有效中断请求
+          assign id_tree[Pa]  = offset; //中断编号
+          assign max_tree[Pa] = prio[offset]; // 优先级
+        end else begin : gen_tie_off
+          assign is_tree[Pa]  = '0;
+          assign id_tree[Pa]  = '0;
+          assign max_tree[Pa] = '0;
+        end
+      end else begin : gen_nodes
+        logic sel;
+        // 比较选择信号
+        assign sel = (~is_tree[C0] & is_tree[C1]) |
+                     (is_tree[C0] & is_tree[C1] & logic'(max_tree[C1] > max_tree[C0]));
+        // 选择出高优先级的中断传递给上一层
+        assign is_tree[Pa]  = (sel              & is_tree[C1])  | ((~sel)            & is_tree[C0]);
+        assign id_tree[Pa]  = ({SrcWidth{sel}}  & id_tree[C1])  | ({SrcWidth{~sel}}  & id_tree[C0]);
+        assign max_tree[Pa] = ({PrioWidth{sel}} & max_tree[C1]) | ({PrioWidth{~sel}} & max_tree[C0]);
+      end
+    end : gen_level
+  end : gen_tree
+```
+
+在树的根节点就是选择出来的优先级最高的异常。通过如下代码，判断优先级是否超过阀值，并输出：
+
+```systemverilog
+  assign irq_d    = (max_tree[0] > threshold) ? is_tree[0] : 1'b0; // 判断优先级是否超过阀值
+  assign irq_id_d = (is_tree[0]) ? id_tree[0] : '0;                // 判断是否为有效的中断，输出中断编号
+```
+
+在`hw/ip/rv_plic/rtl/rv_plic_reg_top.sv`中实现了中断控制器的寄存器。在`hw/ip/rv_plic/rtl/rv_plic.sv`中整合寄存器、`rv_plic_gateway`和`rv_plic_target`并连接到总线。
