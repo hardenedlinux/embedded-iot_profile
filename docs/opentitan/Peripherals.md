@@ -2155,3 +2155,67 @@ module rv_plic_target #(
 ```
 
 在`hw/ip/rv_plic/rtl/rv_plic_reg_top.sv`中实现了中断控制器的寄存器。在`hw/ip/rv_plic/rtl/rv_plic.sv`中整合寄存器、`rv_plic_gateway`和`rv_plic_target`并连接到总线。
+
+## nmi_gen
+
+nmi_gen是不可屏蔽中断，它用于接受外设的中断消息，转化为连接到cpu的中断信号。它使用`prim_esc_receiver`接受来自外设`prim_esc_sender`消息。在理解此部分代码前请参考[NMI Generator Technical Specification](https://docs.opentitan.org/hw/ip/nmi_gen/doc/)
+
+nmi_gen提供四个中断信号，配置寄存器也比较少，使能/测试/状态。nmi_gen代码实现位于`hw/ip/nmi_gen/rtl/nmi_gen.sv`，接口如下：
+
+```systemverilog
+module nmi_gen
+  import prim_esc_pkg::*;
+#(
+  // leave constant
+  localparam int unsigned N_ESC_SEV = 4
+) (
+  // 时钟和复位
+  input                           clk_i,
+  input                           rst_ni,
+  // 总线接口
+  input  tlul_pkg::tl_h2d_t       tl_i,
+  output tlul_pkg::tl_d2h_t       tl_o,
+  // 中断请求信号，连接到cpu
+  output logic                    intr_esc0_o,
+  output logic                    intr_esc1_o,
+  output logic                    intr_esc2_o,
+  output logic                    intr_esc3_o,
+  // prim_esc_receiver / prim_esc_sender 之间的接口
+  input  esc_tx_t [N_ESC_SEV-1:0] esc_tx_i,
+  output esc_rx_t [N_ESC_SEV-1:0] esc_rx_o
+);
+```
+
+代码实现比较简单，创建4个`prim_esc_receiver`用于接受中断请求
+
+```systemverilog
+  logic [N_ESC_SEV-1:0] esc_en;
+
+  for (genvar k = 0; k < N_ESC_SEV; k++) begin : gen_esc_sev
+    prim_esc_receiver i_prim_esc_receiver (
+      .clk_i,
+      .rst_ni,
+      .esc_en_o ( esc_en[k]   ),
+      .esc_rx_o ( esc_rx_o[k] ),
+      .esc_tx_i ( esc_tx_i[k] )
+    );
+  end : gen_esc_sev
+```
+
+然后把来自硬件的中断请求`esc_en`和来自软件的中断请求通过`prim_intr_hw`组合，输出中断请求信号。代码如下：
+
+```systemverilog
+  prim_intr_hw #(
+    .Width(1)
+  ) i_intr_esc0 (
+    .event_intr_i           ( esc_en[0]                  ),
+    .reg2hw_intr_enable_q_i ( reg2hw.intr_enable.esc0.q  ),
+    .reg2hw_intr_test_q_i   ( reg2hw.intr_test.esc0.q    ),
+    .reg2hw_intr_test_qe_i  ( reg2hw.intr_test.esc0.qe   ),
+    .reg2hw_intr_state_q_i  ( reg2hw.intr_state.esc0.q   ),
+    .hw2reg_intr_state_de_o ( hw2reg.intr_state.esc0.de  ),
+    .hw2reg_intr_state_d_o  ( hw2reg.intr_state.esc0.d   ),
+    .intr_o                 ( intr_esc0_o                )
+  );
+```
+
