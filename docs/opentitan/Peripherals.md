@@ -2219,3 +2219,162 @@ module nmi_gen
   );
 ```
 
+## otbn
+
+otbn(OpenTitan Big Number Accelerator)是一个挂载在tlul总线上的协处理器，在理解此部分代码之前请参考[OpenTitan Big Number Accelerator (OTBN) Technical Specification](https://docs.opentitan.org/hw/ip/otbn/doc/)
+
+obtn内部由32个32比特的寄存器和32个256比特的寄存器。otbn有两种类型的指令分别用于处理32比特寄存器和256比特寄存器，并且支持条件判断、跳转、调用，并内建随机数发生器。此模块主要用于非对称加密算法的加速（处理大数）。当前的otbn实现了大体框架（总线交互、寄存器、数据指令存储器），协处理器还没有实现。
+
+otbn顶层模块为`obtn`，代码实现位于`hw/ip/otbn/rtl/otbn.sv`。模块接口如下：
+
+```systemverilog
+module otbn
+  import prim_alert_pkg::*;
+  import otbn_pkg::*;
+(
+  // 时钟和复位
+  input clk_i,
+  input rst_ni,
+
+  // 总线接口
+  input  tlul_pkg::tl_h2d_t tl_i,
+  output tlul_pkg::tl_d2h_t tl_o,
+
+  // Inter-module signals
+  output logic idle_o,
+
+  // 中断信号
+  output logic intr_done_o,
+  output logic intr_err_o,
+
+  // Alerts信号，发送一些不可修复的硬件错误
+  input  prim_alert_pkg::alert_rx_t [otbn_pkg::NumAlerts-1:0] alert_rx_i,
+  output prim_alert_pkg::alert_tx_t [otbn_pkg::NumAlerts-1:0] alert_tx_o
+
+  // CSRNG interface
+  // TODO: Needs to be connected to RNG distribution network (#2638)
+);
+```
+
+寄存器实现`otbn_reg_top`，代码位于`hw/ip/otbn/rtl/otbn_reg_top.sv`。此模块主要负责实现寄存器部分。但总线上除了挂载寄存器，还需要挂载指令和数据存储器，所以修要把一组总线接口拆分为三组，代码如下：
+
+```systemverilog
+  // 用于连接寄存器
+  assign tl_reg_h2d = tl_socket_h2d[2];
+  assign tl_socket_d2h[2] = tl_reg_d2h;
+
+  // 用于连接数据和指令存储器
+  assign tl_win_o[0] = tl_socket_h2d[0];
+  assign tl_socket_d2h[0] = tl_win_i[0];
+  assign tl_win_o[1] = tl_socket_h2d[1];
+  assign tl_socket_d2h[1] = tl_win_i[1];
+
+  // Create Socket_1n
+  tlul_socket_1n #(
+    .N          (3),
+    .HReqPass   (1'b1),
+    .HRspPass   (1'b1),
+    .DReqPass   ({3{1'b1}}),
+    .DRspPass   ({3{1'b1}}),
+    .HReqDepth  (4'h0),
+    .HRspDepth  (4'h0),
+    .DReqDepth  ({3{4'h0}}),
+    .DRspDepth  ({3{4'h0}})
+  ) u_socket (
+    .clk_i,
+    .rst_ni,
+
+    // 上游总线接口
+    .tl_h_i (tl_i),
+    .tl_h_o (tl_o),
+
+    // 拆分出的三组总线接口
+    .tl_d_o (tl_socket_h2d),
+    .tl_d_i (tl_socket_d2h),
+    .dev_select (reg_steer)
+  );
+```
+
+数据和指令存储器，需要分时被主控cpu和协处理器访问，主控cpu需要等待协处理器空闲再访问。代码如下：
+
+```systemverilog
+  // 指令缓存处理
+  // 以core结尾的信号是协处理器接口
+  // 以bus结尾的信号是主控cpu接口
+  // 其他信号是指令缓存的接口
+  assign imem_access_core = busy_q;
+
+  assign imem_req   = imem_access_core ? imem_req_core   : imem_req_bus;
+  assign imem_write = imem_access_core ? imem_write_core : imem_write_bus;
+  assign imem_index = imem_access_core ? imem_index_core : imem_index_bus;
+  assign imem_wdata = imem_access_core ? imem_wdata_core : imem_wdata_bus;
+  assign imem_rdata_bus  = !imem_access_core ? imem_rdata : 32'b0;
+  assign imem_rdata_core = imem_rdata;
+  assign imem_rvalid_bus  = !imem_access_core ? imem_rvalid : 1'b0;
+  assign imem_rvalid_core = imem_access_core ? imem_rvalid : 1'b0;
+  assign imem_rerror_bus  = !imem_access_core ? imem_rerror : 2'b00;
+  assign imem_rerror_core = imem_rerror;
+
+  // 数据缓存处理
+  // 以core结尾的信号是协处理器接口
+  // 以bus结尾的信号是主控cpu接口
+  // 其他信号是指令缓存的接口
+  assign dmem_access_core = busy_q;
+
+  assign dmem_req   = dmem_access_core ? dmem_req_core   : dmem_req_bus;
+  assign dmem_write = dmem_access_core ? dmem_write_core : dmem_write_bus;
+  assign dmem_wmask = dmem_access_core ? dmem_wmask_core : dmem_wmask_bus;
+  assign dmem_index = dmem_access_core ? dmem_index_core : dmem_index_bus;
+  assign dmem_wdata = dmem_access_core ? dmem_wdata_core : dmem_wdata_bus;
+  assign dmem_rdata_bus  = !dmem_access_core ? dmem_rdata : '0;
+  assign dmem_rdata_core = dmem_rdata;
+  assign dmem_rvalid_bus  = !dmem_access_core ? dmem_rvalid : 1'b0;
+  assign dmem_rvalid_core = dmem_access_core  ? dmem_rvalid : 1'b0;
+  assign dmem_rerror_bus  = !dmem_access_core ? dmem_rerror : 2'b00;
+  assign dmem_rerror_core = dmem_rerror;
+```
+
+协处理器实现`otbn_core`，代码位于`hw/ip/otbn/rtl/otbn_core.sv`。接口如下：
+
+```systemverilog
+module otbn_core
+  import otbn_pkg::*;
+#(
+  // 指令存储大小，单位字节
+  parameter int ImemSizeByte = 4096,
+  // 数据存储大小，单位字节
+  parameter int DmemSizeByte = 4096,
+
+  // 计算地址线位宽
+  localparam int ImemAddrWidth = prim_util_pkg::vbits(ImemSizeByte),
+  localparam int DmemAddrWidth = prim_util_pkg::vbits(DmemSizeByte)
+)(
+  // 时钟和复位
+  input  logic  clk_i,
+  input  logic  rst_ni,
+
+  // 控制信号
+  input  logic  start_i, // 主控cpu启动协处理器的信号
+  output logic  done_o,  // 协处理器工作完成输出此信号
+  input  logic [ImemAddrWidth-1:0] start_addr_i, // 协处理器启动后的入口地址
+
+  // 指令存储器接口
+  output logic                     imem_req_o,
+  output logic                     imem_write_o,
+  output logic [ImemAddrWidth-1:0] imem_addr_o,
+  output logic [31:0]              imem_wdata_o,
+  input  logic [31:0]              imem_rdata_i,
+  input  logic                     imem_rvalid_i,
+  input  logic [1:0]               imem_rerror_i,
+
+  // 数据存储器接口
+  output logic                     dmem_req_o,
+  output logic                     dmem_write_o,
+  output logic [DmemAddrWidth-1:0] dmem_addr_o,
+  output logic [WLEN-1:0]          dmem_wdata_o,
+  output logic [WLEN-1:0]          dmem_wmask_o,
+  input  logic [WLEN-1:0]          dmem_rdata_i,
+  input  logic                     dmem_rvalid_i,
+  input  logic [1:0]               dmem_rerror_i
+);
+```
