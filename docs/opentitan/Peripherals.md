@@ -2223,7 +2223,7 @@ module nmi_gen
 
 otbn(OpenTitan Big Number Accelerator)是一个挂载在tlul总线上的协处理器，在理解此部分代码之前请参考[OpenTitan Big Number Accelerator (OTBN) Technical Specification](https://docs.opentitan.org/hw/ip/otbn/doc/)
 
-obtn内部由32个32比特的寄存器和32个256比特的寄存器。otbn有两种类型的指令分别用于处理32比特寄存器和256比特寄存器，并且支持条件判断、跳转、调用，并内建随机数发生器。此模块主要用于非对称加密算法的加速（处理大数）。当前的otbn实现了大体框架（总线交互、寄存器、数据指令存储器），协处理器还没有实现。
+obtn内部由32个32比特的寄存器和32个256比特的寄存器。otbn有两种类型的指令分别用于处理32比特寄存器和256比特寄存器，并且支持条件判断、跳转、调用，并内建随机数发生器。此模块主要用于非对称加密算法的加速（处理大数）。当前otbn还没有实现256比特相关指令，以及跳转和调用。
 
 otbn顶层模块为`obtn`，代码实现位于`hw/ip/otbn/rtl/otbn.sv`。模块接口如下：
 
@@ -2377,4 +2377,361 @@ module otbn_core
   input  logic                     dmem_rvalid_i,
   input  logic [1:0]               dmem_rerror_i
 );
+```
+
+因为协处理器指令长度都为32比特，所以取指单元`otbn_instaruction_fetch`比较简单。代码实现位于`hw/ip/otbn/rtl/otbn_instruction_fetch.sv`。接口如下：
+
+```systemverilog
+module otbn_instruction_fetch
+  import otbn_pkg::*;
+#(
+  // 指令存储器大小，单位字节
+  parameter int ImemSizeByte = 4096,
+  // 计算地址线宽度
+  localparam int ImemAddrWidth = prim_util_pkg::vbits(ImemSizeByte)
+) (
+  // 时钟和复位
+  input logic clk_i,
+  input logic rst_ni,
+
+  // 指令存储器接口，只读
+  output logic                     imem_req_o,
+  output logic [ImemAddrWidth-1:0] imem_addr_o,
+  input  logic [31:0]              imem_rdata_i,
+  input  logic                     imem_rvalid_i,
+  input  logic [1:0]               imem_rerror_i, // Bit1: Uncorrectable, Bit0: Correctable
+
+  // 取指输入信号，来自控制器otbn_controller
+  input  logic                     insn_fetch_req_valid_i,
+  input  logic [ImemAddrWidth-1:0] insn_fetch_req_addr_i,
+
+  // 输出取出的指令
+  output logic                     insn_fetch_resp_valid_o, // 指令有效信号
+  output logic [ImemAddrWidth-1:0] insn_fetch_resp_addr_o,  // 当前地址，输出到控制器，用于计算下一条指令的地址
+  output logic [31:0]              insn_fetch_resp_data_o   // 取出的32比特的指令
+);
+```
+
+当前实现比较简单，代码如下：
+
+```systemverilog
+  //把控制器的信号直接连接到内存
+  assign imem_req_o = insn_fetch_req_valid_i;
+  assign imem_addr_o = insn_fetch_req_addr_i;
+
+  // 把内存的输出直接输出
+  assign insn_fetch_resp_valid_o = imem_rvalid_i;
+  assign insn_fetch_resp_data_o = imem_rdata_i;
+
+  always_ff @(posedge clk_i) begin
+    insn_fetch_resp_addr_o <= insn_fetch_req_addr_i;
+  end
+```
+
+控制器主要接受取指单元`otbn_instruction_fetch`输入的地址信号和译码单元`otbn_decoder`输出的译码信号，对其他模块进行控制。接口如下：
+
+```systemverilog
+module otbn_controller
+  import otbn_pkg::*;
+#(
+  // 指令存储器大小，单位字节
+  parameter int ImemSizeByte = 4096,
+  // 数据存储器大小，单位字节
+  parameter int DmemSizeByte = 4096,
+
+  // 计算地址线宽度
+  localparam int ImemAddrWidth = prim_util_pkg::vbits(ImemSizeByte),
+  localparam int DmemAddrWidth = prim_util_pkg::vbits(DmemSizeByte)
+) (
+  // 时钟和复位信号
+  input  logic  clk_i,
+  input  logic  rst_ni,
+
+  // 来自主控cpu的控制和响应信号
+  input  logic                     start_i, // 来自主控cpu的启动信号
+  output logic                     done_o,  // 执行到最后一条指令ecall，向主控cpu发生中断信号
+  input  logic [ImemAddrWidth-1:0] start_addr_i, // 来自主控cpu的，启动地址
+
+  // 输出给预取单元的控制信号
+  output logic                     insn_fetch_req_valid_o, // 需要新的指令
+  output logic [ImemAddrWidth-1:0] insn_fetch_req_addr_o,  // 要取的指令的地址
+
+  // 来自预期单元的响应信号
+  input  logic                     insn_valid_i, // 取到有效指令
+  input  logic [ImemAddrWidth-1:0] insn_addr_i,  // 取到指令的地址
+
+  // 来自译码单元的信号
+  input insn_dec_base_t       insn_dec_base_i,
+  input insn_dec_ctrl_t       insn_dec_ctrl_i,
+
+  // 回写寄存器信号
+  output logic [4:0]   rf_base_wr_addr_o,
+  output logic         rf_base_wr_en_o,
+  output logic [31:0]  rf_base_wr_data_o,
+
+  // 取寄存器a信号
+  output logic [4:0]   rf_base_rd_addr_a_o, // 输出地址
+  input  logic [31:0]  rf_base_rd_data_a_i, // 接受寄存器的值
+
+  // 取寄存器b信号
+  output logic [4:0]   rf_base_rd_addr_b_o, // 输出地址
+  input  logic [31:0]  rf_base_rd_data_b_i, // 接受寄存器的值
+
+  // 输出到执行单元alu
+  output alu_base_operation_t  alu_base_operation_o,
+  output alu_base_comparison_t alu_base_comparison_o,
+  input  logic [31:0]          alu_base_operation_result_i,
+  input  logic                 alu_base_comparison_result_i
+);
+```
+
+控制器，需要在检测到ecall指令后输出执行完成信号`done_o`。代码如下：
+
+```systemverilog
+  // 译码单元译码到ecall指令，并指令有效
+  assign done_o = insn_valid_i && insn_dec_ctrl_i.ecall_insn;
+```
+
+通过如下代码计算下一条指令地址，并没有实现跳转和调用，代码如下：
+
+```systemverilog
+  always_comb begin
+    running_d              = running_q;
+    insn_fetch_req_valid_o = 1'b0;
+    insn_fetch_req_addr_o  = start_addr_i;
+
+    if (start_i) begin
+      // 启动时从主控cpu指定位置取指令
+      running_d = 1'b1;
+      insn_fetch_req_addr_o  = start_addr_i;
+      insn_fetch_req_valid_o = 1'b01;
+    end else if (running_q) begin
+      // 运行时，计算下一条指令地址。一条指令32比特，地址加4
+      insn_fetch_req_valid_o = 1'b1;
+      insn_fetch_req_addr_o  = insn_addr_i + 'd4;
+    end
+
+    // 运行完成后停止取指
+    if (done_o) begin
+      running_d              = 1'b0;
+      insn_fetch_req_valid_o = 1'b0;
+    end
+    // TODO: Jumps/branches
+  end
+```
+
+控制器通过译码器输出信号，访问源寄存器。代码如下：
+
+```systemverilog
+  assign rf_base_rd_addr_a_o = insn_dec_base_i.a;
+  assign rf_base_rd_addr_b_o = insn_dec_base_i.b;
+```
+
+控制器需要选择出操着数，代码如下：
+
+```systemverilog
+  // 操着数a，始终为寄存器
+  always_comb begin
+    unique case (insn_dec_ctrl_i.op_a_sel)
+      OpASelRegister:
+        alu_base_operation_o.operand_a = rf_base_rd_data_a_i;
+      default:
+        alu_base_operation_o.operand_a = rf_base_rd_data_a_i;
+    endcase
+  end
+
+  // 操作数b，可以是寄存器b或者立即数
+  always_comb begin
+    unique case (insn_dec_ctrl_i.op_b_sel)
+      OpBSelRegister:
+        alu_base_operation_o.operand_b = rf_base_rd_data_b_i;
+      OpBSelImmediate:
+        alu_base_operation_o.operand_b = insn_dec_base_i.i;
+      default:
+        alu_base_operation_o.operand_b = rf_base_rd_data_b_i;
+    endcase
+  end
+```
+
+控制器把译码器译码出的指令传递给计算单元。代码如下：
+
+```systemverilog
+  assign alu_base_operation_o.op = insn_dec_ctrl_i.alu_op;
+```
+
+控制器把计算单元计算结构，根据译码结果写入到目标寄存器。代码如下：
+
+```systemverilog
+  assign rf_base_wr_en_o   = insn_dec_ctrl_i.rf_we;       // 来自译码器的回写信号
+  assign rf_base_wr_addr_o = insn_dec_base_i.d;           // 来自译码器的目标寄存器地址
+  assign rf_base_wr_data_o = alu_base_operation_result_i; // 来自ALU的计算结果
+```
+
+译码器`otbn_decoder`接收预期单元`otbn_instruction_fetch`的指令信息，输出译码信息`otbn_controller`给控制单元。接口如下：
+
+```systemverilog
+module otbn_decoder
+  import otbn_pkg::*;
+(
+  // 时钟和复位
+  input  logic                 clk_i,
+  input  logic                 rst_ni,
+
+  // 译码单元输入信号
+  input  logic [31:0]          insn_fetch_resp_data_i,  // 指令
+  input  logic                 insn_fetch_resp_valid_i, // 有效指令信号
+
+  // 控制信号
+  output logic                 insn_valid_o,   // 指令有效，译码成功
+  output logic                 insn_illegal_o, // 非法指令信号
+
+  // 译码信号输出到控制器
+  output insn_dec_base_t       insn_dec_base_o, // 源寄存器目标寄存器地址，立即数
+  output insn_dec_ctrl_t       insn_dec_ctrl_o  // 指令 寄存器选择信号
+);
+```
+
+通过如下代码解码立即数:
+
+```systemverilog
+  // 解码出有可能的立即数
+  assign imm_i_type = { {20{insn[31]}}, insn[31:20] };
+  assign imm_s_type = { {20{insn[31]}}, insn[31:25], insn[11:7] };
+  assign imm_b_type = { {19{insn[31]}}, insn[31], insn[7], insn[30:25], insn[11:8], 1'b0 };
+  assign imm_u_type = { insn[31:12], 12'b0 };
+  assign imm_j_type = { {12{insn[31]}}, insn[19:12], insn[20], insn[30:21], 1'b0 };
+```
+
+然后通过case语句，解码指令中的位域，并输出一些控制信息。解码出的信号，打包输出给控制器，代码如下：
+
+```systemverilog
+  assign insn_dec_base_o = '{
+    a: insn_rs1, // 源操作数a的寄存器地址，
+    b: insn_rs2, // 源操作数b的寄存器地址
+    d: insn_rd,  // 目标寄存器地址
+    i: imm_b     // 解码出的地址
+  };
+
+  assign insn_dec_ctrl_o = '{
+    subset:       insn_subset,      // 指令类型：32比特指令，256比特指令
+    op_a_sel:     alu_op_a_mux_sel, // 操作数a的选择信号
+    op_b_sel:     alu_op_b_mux_sel, // 操作数b的选择信号
+    alu_op:       alu_operator,     // 操作码
+    rf_we:        rf_we,            // 回写寄存器信号，写使能
+    rf_wdata_sel: rf_wdata_sel,     // 选择回写数据来源（ALU计算结果，内存加载）
+    ecall_insn:   ecall_insn        // 检测到ecall指令
+  };
+```
+
+寄存器当前只实现了32比特的基础寄存器`obtn_rf_base`，代码位于`hw/ip/otbn/rtl/otbn_rf_base.sv`。寄存器接受控制器`otbn_controller`读写。接口如下：
+
+```systemverilog
+module otbn_rf_base
+  import otbn_pkg::*;
+(
+  // 时钟和复位
+  input logic          clk_i,
+  input logic          rst_ni,
+
+  // 写端口
+  input logic [4:0]    wr_addr_i,
+  input logic          wr_en_i,
+  input logic [31:0]   wr_data_i,
+
+  // 读端口a
+  input  logic [4:0]   rd_addr_a_i,
+  output logic [31:0]  rd_data_a_o,
+
+  // 读端口b
+  input  logic [4:0]   rd_addr_b_i,
+  output logic [31:0]  rd_data_b_o
+);
+```
+
+计算单元`otbn_alu_base`，代码位于`hw/ip/otbn/rtl/otbn_alu_base.sv`。接口如下：
+
+```systemverilog
+module otbn_alu_base
+  import otbn_pkg::*;
+(
+  // 时钟和复位
+  input  logic                 clk_i,
+  input  logic                 rst_ni,
+
+  // 来自控制器的信号
+  input  alu_base_operation_t  operation_i,
+  input  alu_base_comparison_t comparison_i,
+
+  // 输出计算结果
+  output logic [31:0]          operation_result_o,
+  output logic                 comparison_result_o
+);
+```
+
+加减法通过在低位补位的方式实现，代码如下：
+
+```systemverilog
+  assign adder_op_b_negate = operation_i.op == AluOpSub;
+
+  assign adder_op_a = {operation_i.operand_a, 1'b1};
+  assign adder_op_b = adder_op_b_negate ? {~operation_i.operand_b, 1'b1} : {operation_i.operand_b, 1'b0};
+
+  assign adder_result = adder_op_a + adder_op_b;
+```
+
+位运算代码如下：
+
+```systemverilog
+  assign and_result = operation_i.operand_a & operation_i.operand_b;
+  assign or_result  = operation_i.operand_a | operation_i.operand_b;
+  assign xor_result = operation_i.operand_a ^ operation_i.operand_b;
+  assign not_result = ~operation_i.operand_a;
+```
+
+通过两次位反转，通过右移实现坐移。代码如下：
+
+```systemverilog
+  logic [32:0] shift_in;
+  logic [4:0]  shift_amt;
+  logic [31:0] operand_a_reverse;
+  logic [32:0] shift_out;
+  logic [31:0] shift_out_reverse;
+
+  for (genvar i = 0;i < 32; i++) begin : g_shifter_reverses
+    assign operand_a_reverse[i] = operation_i.operand_a[31-i]; // 左移，源操作数位反转
+    assign shift_out_reverse[i] = shift_out[31-i];             // 左移，目标结果位反转
+  end
+
+  assign shift_amt = operation_i.operand_b[4:0]; // 获取移位的位数
+
+  // 根据移位方向选择源操作数，是否需要翻转
+  assign shift_in[31:0] = (operation_i.op == AluOpSll) ? operand_a_reverse : operation_i.operand_a;
+
+  // 算术右移需要把源操作数的最高位扩展到第32bit
+  assign shift_in[32] = (operation_i.op == AluOpSra) ? operation_i.operand_a[31] : 1'b0;
+
+  // 实际移位（33位算术右移)
+  assign shift_out = signed'(shift_in) >>> shift_amt;
+
+  // 左移结果为shift_out_reverse
+  // 右移结果为shift_out
+```
+
+根据操作类型选择运算结果，代码如下：
+
+```systemverilog
+  always_comb begin
+    operation_result_o = adder_result[32:1];
+
+    unique case (operation_i.op)
+      AluOpAnd: operation_result_o = and_result;
+      AluOpOr:  operation_result_o = or_result;
+      AluOpXor: operation_result_o = xor_result;
+      AluOpNot: operation_result_o = not_result;
+      AluOpSra: operation_result_o = shift_out[31:0];
+      AluOpSrl: operation_result_o = shift_out[31:0];
+      AluOpSll: operation_result_o = shift_out_reverse;
+      default: ;
+    endcase
+  end
 ```
