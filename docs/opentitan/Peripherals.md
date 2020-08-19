@@ -2219,6 +2219,379 @@ module nmi_gen
   );
 ```
 
+## alert_handler
+
+alert_handler是一个可以对中断分类，在中断常时间得不到处理时，升级中断，把中断发生给特定硬件或cpu。用于处理一些安全相关的异常，当异常没法解决时销毁数据等相关操作。在理解此部分代码前请参考[Alert Handler Technical Specification](https://docs.opentitan.org/hw/ip/alert_handler/doc/)
+
+`alert_handler`的顶层接口如下：
+
+```systemverilog
+module alert_handler
+  import alert_pkg::*;
+  import prim_alert_pkg::*;
+  import prim_esc_pkg::*;
+(
+  // 时钟和复位
+  input                           clk_i,
+  input                           rst_ni,
+  // 总线接口
+  input  tlul_pkg::tl_h2d_t       tl_i,
+  output tlul_pkg::tl_d2h_t       tl_o,
+  // 中断请求
+  output logic                    intr_classa_o,
+  output logic                    intr_classb_o,
+  output logic                    intr_classc_o,
+  output logic                    intr_classd_o,
+  // State information for HW crashdump
+  output alert_crashdump_t        crashdump_o,
+  // Entropy Input from TRNG
+  input                           entropy_i,
+  // 来自设备的alert中断请求
+  input  alert_tx_t [NAlerts-1:0] alert_tx_i,
+  output alert_rx_t [NAlerts-1:0] alert_rx_o,
+  // 升级后的中断信号
+  input  esc_rx_t [N_ESC_SEV-1:0] esc_rx_i,
+  output esc_tx_t [N_ESC_SEV-1:0] esc_tx_o
+);
+```
+
+`alert_handler`通过`prim_alert`接受中断请求信号，在中断升级后通过`prim_esc`发生中断请求。`alert_handler`接受到的中断请求被称为`alert`。`prim_alert`和`prim_esc`有检测连通的机制（ping），和检测信号异常的机制，如果不连通或信号异常被称为`loc_alert`。
+
+模块`alert_handler_ping_timer`用于检测设备是否连通并产生两个`loc_alert`:
+
+- `prim_alert` ping测试失败
+- `prim_esc` ping测试失败
+
+`alert_handler_ping_timer`代码实现位于`hw/ip/alert_handler/rtl/alert_handler_ping_timer.sv`，接口如下：
+
+```systemverilog
+module alert_handler_ping_timer import alert_pkg::*; #(
+  // Enable this for DV, disable this for long LFSRs in FPV
+  parameter bit                MaxLenSVA  = 1'b1,
+  // Can be disabled in cases where entropy
+  // inputs are unused in order to not distort coverage
+  // (the SVA will be unreachable in such cases)
+  parameter bit                LockupSVA  = 1'b1
+) (
+  // 时钟和复位
+  input                          clk_i,
+  input                          rst_ni,
+
+  input                          entropy_i,          // 随机数发生器的控制信号
+  input                          en_i,               // ping测试使能
+  input        [NAlerts-1:0]     alert_en_i,         // alert使能信号，只测试使能的外设
+  input        [PING_CNT_DW-1:0] ping_timeout_cyc_i, // ping测试超时时间
+  input        [PING_CNT_DW-1:0] wait_cyc_mask_i,    // 等待随机数发生器时间的掩码
+  output logic [NAlerts-1:0]     alert_ping_req_o,   // prim_alert ping请求信号
+  output logic [N_ESC_SEV-1:0]   esc_ping_req_o,     // prim_sec ping请求信号
+  input        [NAlerts-1:0]     alert_ping_ok_i,    // prim_alert ping请求应答信号
+  input        [N_ESC_SEV-1:0]   esc_ping_ok_i,      // prim_sec ping请求应答信号
+  output logic                   alert_ping_fail_o,  // prim_alert ping请求出错
+  output logic                   esc_ping_fail_o     // prim_sec ping请求出错
+);
+```
+
+`alert_handler_ping_timer`内部通过一个线性反馈移位寄存器`prim_lfsr`生成未随机数，通过随机数决定测试那一个`prim_alert`或`prim_sec`，以及等待时间等。代码如下：
+
+```systemverilog
+  // 此表用于对线性反馈移位寄存器的结果进行位重排
+  localparam int unsigned Perm [32] = '{
+    4, 11, 25,  3,   //
+    15, 16,  1, 10,  //
+    2, 22,  7,  0,   //
+    23, 28, 30, 19,  //
+    27, 12, 24, 26,  //
+    14, 21, 18,  5,  //
+    13,  8, 29, 31,  //
+    20,  6,  9, 17   //
+  };
+
+  logic lfsr_en;
+  logic [31:0] lfsr_state, perm_state;
+  logic [16-IdDw-1:0] unused_perm_state;
+
+  // 线性反馈移位寄存器生成随机数
+  prim_lfsr #(
+    .LfsrDw      ( 32         ),
+    .EntropyDw   ( 1          ),
+    .StateOutDw  ( 32         ),
+    .DefaultSeed ( LfsrSeed   ),
+    .MaxLenSVA   ( MaxLenSVA  ),
+    .LockupSVA   ( LockupSVA  ),
+    .ExtSeedSVA  ( 1'b0       ) // ext seed is unused
+  ) i_prim_lfsr (
+    .clk_i,
+    .rst_ni,
+    .seed_en_i  ( 1'b0       ),
+    .seed_i     ( '0         ),
+    .lfsr_en_i  ( lfsr_en    ),
+    .entropy_i,
+    .state_o    ( lfsr_state )
+  );
+
+  // 对生成的随机数进行位重排
+  for (genvar k = 0; k < 32; k++) begin : gen_perm
+    assign perm_state[k] = lfsr_state[Perm[k]];
+  end
+
+  logic [IdDw-1:0] id_to_ping;
+  logic [PING_CNT_DW-1:0] wait_cyc;
+
+  // 从随机随机数中取出一段计算要进行ping测试的id
+  assign id_to_ping = perm_state[16 +: IdDw];
+
+  // to avoid lint warnings
+  assign unused_perm_state = perm_state[31:16+IdDw];
+
+  // 从随机随机数中取出一段计算等待周期数
+  assign wait_cyc   = PING_CNT_DW'({perm_state[15:2], 8'h01, perm_state[1:0]}) & wait_cyc_mask_i;
+```
+
+`alert_handler`具有`NAlerts`个`prim_alert`和`N_ESC_SEV`个`prim_esc`。把它们依次编码`[0, NAlerts - 1]`为`prim_alert`，`[NAlerts, NModsToPing - 1]`为`prim_esc`。其中`NModsToPing = NAlerts + N_ESC_SEV`。并且，下端请求中断的外设可以被禁用，禁用的外设不需要进行ping测试，对于上端用于处理升级中断的外设或cpu一直需要进行ping测试。以下代码用于计算当前要不要进行测试。
+
+```systemverilog
+  logic [2**IdDw-1:0] enable_mask;                   // 使能掩码
+  always_comb begin : p_enable_mask
+    enable_mask                        = '0;
+    enable_mask[NAlerts-1:0]           = alert_en_i; // 低位根据alert使能信息设置
+    enable_mask[NModsToPing-1:NAlerts] = '1;         // 高位全部使能
+  end
+
+  logic id_vld;
+  assign id_vld  = enable_mask[id_to_ping];          // 获取当前测试id是否被使能
+
+  // 通过id_to_ping输出ping信号
+  assign ping_sel        = NModsToPing'(ping_en) << id_to_ping;
+  assign alert_ping_req_o = ping_sel[NAlerts-1:0];
+  assign esc_ping_req_o   = ping_sel[NModsToPing-1:NAlerts];
+
+  // 获取响应后，标识测试成功
+  assign ping_ok             = |({esc_ping_ok_i, alert_ping_ok_i} & ping_sel);
+
+  // 有多余外设响应，也输出错误信息
+  assign spurious_ping       = ({esc_ping_ok_i, alert_ping_ok_i} & ~ping_sel);
+  assign spurious_alert_ping = |spurious_ping[NAlerts-1:0];
+  assign spurious_esc_ping   = |spurious_ping[NModsToPing-1:NAlerts];
+```
+
+内部有一个计时器，用来判断是否超时，代码如下：
+
+```systemverilog
+  always_ff @(posedge clk_i or negedge rst_ni) begin : p_regs
+    if (!rst_ni) begin
+      state_q <= Init;
+      cnt_q   <= '0;
+    end else begin
+      state_q <= state_d;
+
+      if (cnt_clr) begin
+        cnt_q <= '0;
+      end else if (cnt_en) begin
+        cnt_q <= cnt_d;
+      end
+    end
+  end
+
+  assign cnt_d      = cnt_q + 1'b1; // 下一个状态计时器的值
+  assign wait_ge    = (cnt_q >= wait_cyc); // 等待lfsr超时
+  assign timeout_ge = (cnt_q >= ping_timeout_cyc_i); // 等待ping超时
+```
+
+通过一个状态机控制定时器，随机数发生器，以及输出出错信息。状态机如下：
+
+![alert_handler_ping_timer状态机](https://raw.githubusercontent.com/hardenedlinux/embedded-iot_profile/master/resources/images/docs/opentitan/alert_handler_ping_timer.png)
+
+- Init，复位后的状态，在接受到使能信号时进入RespWait
+- RespWait，用于等待lfsr生成新的随机数，然后进入DoPing
+- DoPing，进行ping测试，当超时触发输出错误信号，然后返回RespWait
+
+`prim_alert`和`prim_esc`可以检测到总线异常，`alert_handler_ping_timer`输出两个ping测试超时，这样生成4个`loc_alert`
+
+```systemverilog
+  alert_handler_ping_timer i_ping_timer (
+    .clk_i,
+    .rst_ni,
+    .entropy_i,
+    // we enable ping testing as soon as the config
+    // regs have been locked
+    .en_i               ( reg2hw_wrap.config_locked    ),
+    .alert_en_i         ( reg2hw_wrap.alert_en         ),
+    .ping_timeout_cyc_i ( reg2hw_wrap.ping_timeout_cyc ),
+    // this determines the range of the randomly generated
+    // wait period between ping. maximum mask width is PING_CNT_DW.
+    .wait_cyc_mask_i    ( PING_CNT_DW'(24'hFFFFFF)     ),
+    .alert_ping_req_o   ( alert_ping_req               ),
+    .esc_ping_req_o     ( esc_ping_req                 ),
+    .alert_ping_ok_i    ( alert_ping_ok                ),
+    .esc_ping_ok_i      ( esc_ping_ok                  ),
+    .alert_ping_fail_o  ( loc_alert_trig[0]            ),
+    .esc_ping_fail_o    ( loc_alert_trig[1]            )
+  );
+
+    prim_alert_receiver #(
+      .AsyncOn(AsyncOn[k])
+    ) i_alert_receiver (
+      .clk_i                              ,
+      .rst_ni                             ,
+      .ping_req_i   ( alert_ping_req[k]   ),
+      .ping_ok_o    ( alert_ping_ok[k]   ),
+      .integ_fail_o ( alert_integfail[k] ),
+      .alert_o      ( alert_trig[k]      ),
+      .alert_rx_o   ( alert_rx_o[k]      ),
+      .alert_tx_i   ( alert_tx_i[k]      )
+    );
+    assign loc_alert_trig[2] = |(reg2hw_wrap.alert_en & alert_integfail);
+
+    prim_esc_sender i_esc_sender (
+      .clk_i,
+      .rst_ni,
+      .ping_req_i   ( esc_ping_req[k]  ),
+      .ping_ok_o    ( esc_ping_ok[k]   ),
+      .integ_fail_o ( esc_integfail[k] ),
+      .esc_req_i    ( esc_sig_req[k]   ),
+      .esc_rx_i     ( esc_rx_i[k]      ),
+      .esc_tx_o     ( esc_tx_o[k]      )
+    );
+    assign loc_alert_trig[3] = |esc_integfail;
+```
+
+`alert_handler_class`模块对`alert`和`loc_alert`进行分类，并触发类型中断。`alert_handler_class`代码实现位于`/home/merle/workspaces/opentitan/hw/ip/alert_handler/rtl/alert_handler_class.sv`中，接口如下：
+
+```systemverilog
+module alert_handler_class import alert_pkg::*; (
+  input [NAlerts-1:0]                   alert_trig_i,      // alert trigger
+  input [N_LOC_ALERT-1:0]               loc_alert_trig_i,  // alert trigger
+  input [NAlerts-1:0]                   alert_en_i,        // alert enable
+  input [N_LOC_ALERT-1:0]               loc_alert_en_i,    // alert enable
+  input [NAlerts-1:0]    [CLASS_DW-1:0] alert_class_i,     // class assignment
+  input [N_LOC_ALERT-1:0][CLASS_DW-1:0] loc_alert_class_i, // class assignment
+
+  output logic [NAlerts-1:0]            alert_cause_o,     // alert cause
+  output logic [N_LOC_ALERT-1:0]        loc_alert_cause_o, // alert cause
+  output logic [N_CLASSES-1:0]          class_trig_o       // class triggered
+);
+```
+
+`alert`分类通过两组寄存器设定`ALERT_CLASS` `LOC_ALERT_CLASS`，通过`alert_class_i` `loc_alert_class_i`输入。`alert_cause_o`和`loc_alert_cause_o`输出到寄存器，标识那些alert被触发，代码如下：
+
+```systemverilog
+  assign alert_cause_o     = alert_en_i     & alert_trig_i;
+  assign loc_alert_cause_o = loc_alert_en_i & loc_alert_trig_i;
+```
+
+`alert`和`loc_alert`都被分为`N_CLASSES`类，只要`alert`和`loc_alert`有一个触发其中一类中断就触发中断，分类代码如下：
+
+```systemverilog
+  // 生成一个表，把类转换为掩码
+  always_comb begin : p_class_mask
+    class_masks = '0;
+    loc_class_masks = '0;
+    for (int unsigned kk = 0; kk < NAlerts; kk++) begin
+      class_masks[alert_class_i[kk]][kk] = 1'b1;
+    end
+    for (int unsigned kk = 0; kk < N_LOC_ALERT; kk++) begin
+      loc_class_masks[loc_alert_class_i[kk]][kk] = 1'b1;
+    end
+  end
+
+  // 输出类型中断信息
+  for (genvar k = 0; k < N_CLASSES; k++) begin : gen_classifier
+    assign class_trig_o[k] = (|{ alert_cause_o     & class_masks[k],
+                                 loc_alert_cause_o & loc_class_masks[k] });
+  end
+```
+
+在类型中断生成后，通过`alert_handler_accu`计时，超时触发`accu_trig`。`alert_handler_accu`实现位于`/home/merle/workspaces/opentitan/hw/ip/alert_handler/rtl/alert_handler_accu.sv`，接口如下：
+
+```systemverilog
+module alert_handler_accu import alert_pkg::*; (
+  // 时钟和复位
+  input                        clk_i,
+  input                        rst_ni,
+
+  input                        class_en_i,   // 使能，来自寄存器
+  input                        clr_i,        // 清除计时器信号，来自寄存器
+  input                        class_trig_i, // 来自alert_handler_class的类型中断信号
+  input        [AccuCntDw-1:0] thresh_i,     // 升级中断时间，来自寄存器
+  output logic [AccuCntDw-1:0] accu_cnt_o,   // 输出当前计数器的值
+  output logic                 accu_trig_o   // 输出，触发accu_trig
+);
+```
+
+此模块内部是一个简单的计数器，代码如下：
+
+```systemverilog
+  assign trig_gated = class_trig_i & class_en_i; // 使能并且接受到类型中断时触发计数器
+
+  assign accu_d = (clr_i)                    ? '0            : // 清除计数器
+                  (trig_gated && !(&accu_q)) ? accu_q + 1'b1 : // 计数器未满并且收到触发信号加一
+                                               accu_q; // 计数器满后保持不变
+
+  assign accu_trig_o = (accu_q >= thresh_i) & trig_gated; // 计数器超过设定值后触发accu_trig
+
+  assign accu_cnt_o = accu_q;
+  
+  // 计数器
+  always_ff @(posedge clk_i or negedge rst_ni) begin : p_regs
+    if (!rst_ni) begin
+      accu_q <= '0;
+    end else begin
+      accu_q <= accu_d;
+    end
+  end
+```
+
+`accu_trig`输出给`alert_handler_esc_timer`模块，代码位于`hw/ip/alert_handler/rtl/alert_handler_esc_timer.sv`，接口如下：
+
+```systemverilog
+module alert_handler_esc_timer import alert_pkg::*; (
+  // 时钟和复位
+  input                        clk_i,
+  input                        rst_ni,
+
+  input                        en_i,           // 使能信号
+  input                        clr_i,          // 清除esc计数器信号，来自寄存器
+  input                        accum_trig_i,   // 来自alert_handler_accu的accu_trig
+  input                        timeout_en_i,   // 来自alert_handler_class的class_trig
+  input        [EscCntDw-1:0]  timeout_cyc_i,  // 当先接受到class_trig等待此时间进入Phase0
+  input        [N_ESC_SEV-1:0] esc_en_i,       // escalation signal 使能
+  input        [N_ESC_SEV-1:0]
+               [PHASE_DW-1:0]  esc_map_i,      // escalation signal / phase map
+  input        [N_PHASES-1:0]
+               [EscCntDw-1:0]  phase_cyc_i,    // phase到phase之间的时间
+  output logic                 esc_trig_o,     // 输出esc_tring到寄存器
+  output logic [EscCntDw-1:0]  esc_cnt_o,      // 当前计数器的值
+  output logic [N_ESC_SEV-1:0] esc_sig_req_o,  // 输出升级信号
+  // current state output
+  // 000: idle, 001: irq timeout counting 100: phase0, 101: phase1, 110: phase2, 111: phase3
+  output cstate_e              esc_state_o     // 输出当前的状态
+);
+```
+
+此模块内部由6个状态：`Idle`、`Timeout`、`Phase0`、`Phase1`、`Phase2`、`Phase3`、`Terminal`。状态机如下：
+
+![alert_handler_esc_timer状态机](https://raw.githubusercontent.com/hardenedlinux/embedded-iot_profile/master/resources/images/docs/opentitan/alert_handler_esc_timer.png)
+
+- Idle，当先接收到`class_trig`时进入Timeout状态，当先接收到`accun_trig`时进入Phase0
+- Timeout，超时或者接受到`accun_trig`进入Phase0
+- Phase0，根据配置输出当前状态下的`esc_sig_req_o`，超时进入下一个状态Phase1
+- Phase1，根据配置输出当前状态下的`esc_sig_req_o`，超时进入下一个状态Phase2
+- Phase2，根据配置输出当前状态下的`esc_sig_req_o`，超时进入下一个状态Phase3
+- Phase3，根据配置输出当前状态下的`esc_sig_req_o`，超时进入下一个状态Terminal
+- Terminal，计数器停止
+- 在任何状态下接受到计数器清零信号都进入Idle
+
+系统有一组寄存器用来设定状态切换。在Phase0-Phase3状态下输出`esc_sig_req_o`，每一个类型的`class_trig`最多可以触发4路`esc_sig`，并且可以分配到不同的阶段。通过如下代码实现
+
+```systemverilog
+  for (genvar k = 0; k < N_ESC_SEV; k++) begin : gen_phase_map
+    // 生成一个掩码标识当前阶段有没有被使能
+    assign esc_map_oh[k] = N_ESC_SEV'(esc_en_i[k]) << esc_map_i[k];
+    // 和阶段掩码与，然后得到此路esc_sig要不要输出
+    assign esc_sig_req_o[k] = |(esc_map_oh[k] & phase_oh);
+  end
+```
+
 ## otbn
 
 otbn(OpenTitan Big Number Accelerator)是一个挂载在tlul总线上的协处理器，在理解此部分代码之前请参考[OpenTitan Big Number Accelerator (OTBN) Technical Specification](https://docs.opentitan.org/hw/ip/otbn/doc/)
