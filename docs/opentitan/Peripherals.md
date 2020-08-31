@@ -2568,7 +2568,7 @@ module alert_handler_esc_timer import alert_pkg::*; (
 );
 ```
 
-此模块内部由6个状态：`Idle`、`Timeout`、`Phase0`、`Phase1`、`Phase2`、`Phase3`、`Terminal`。状态机如下：
+此模块内部由7个状态：`Idle`、`Timeout`、`Phase0`、`Phase1`、`Phase2`、`Phase3`、`Terminal`。状态机如下：
 
 ![alert_handler_esc_timer状态机](https://raw.githubusercontent.com/hardenedlinux/embedded-iot_profile/master/resources/images/docs/opentitan/alert_handler_esc_timer.png)
 
@@ -3108,3 +3108,515 @@ module otbn_alu_base
     endcase
   end
 ```
+
+## hmac
+
+此模块可以计算SHA256和HMAC-SHA256，在理解此部分代码之前请参考[HMAC HWIP Technical Specification](https://docs.opentitan.org/hw/ip/hmac/doc/#features)
+
+`sha2_pad`模块用于对原文进行填充，填充规则如下：
+
+- 填充后长度为512bit的整数被
+- 第一个填充的字节为0x80
+- 最后八个字节为原始消息长度
+- 其他填充字节为0x00
+
+模块接口如下：
+
+```systemverilog
+module sha2_pad import hmac_pkg::*; (
+  // 时钟和复位
+  input clk_i,
+  input rst_ni,
+
+  input            wipe_secret,
+  input sha_word_t wipe_v,
+
+  // 输入缓冲区（fifo）
+  input                 fifo_rvalid,
+  input  sha_fifo_t     fifo_rdata,
+  output logic          fifo_rready,
+
+  // 输出给计算单元（fifo）
+  output logic          shaf_rvalid,
+  output sha_word_t     shaf_rdata,
+  input                 shaf_rready,
+
+  // 控制信号
+  input sha_en,
+  input hash_start,
+  input hash_process,
+  input hash_done,
+
+  input        [63:0] message_length,   // 输入的消息长度
+  output logic        msg_feed_complete // 标识消息获取完成
+);
+```
+
+此模块一次读写`sha_word_t`（32bit）宽度。内部通过如下逻辑控制输出数据，代码如下：
+
+```systemverilog
+  always_comb begin
+    unique case (sel_data) // 通过sel_data选择数据来源
+      FifoIn: begin // 直接从输入fifo获取数据
+        shaf_rdata = fifo_rdata.data;
+      end
+
+      Pad80: begin
+        // 填补0x80，message_length为bit长度
+        // message_length[63:3]为字节数
+        // message_length[4:3]为字节长度除4的余数
+        unique case (message_length[4:3])
+          2'b 00: shaf_rdata = 32'h 8000_0000;
+          2'b 01: shaf_rdata = {fifo_rdata.data[31:24], 24'h 8000_00};
+          2'b 10: shaf_rdata = {fifo_rdata.data[31:16], 16'h 8000};
+          2'b 11: shaf_rdata = {fifo_rdata.data[31: 8],  8'h 80};
+          default: shaf_rdata = 32'h0;
+        endcase
+      end
+
+      Pad00: begin //填充0x00
+        shaf_rdata = '0;
+      end
+
+      LenHi: begin // 填充消息长度的高32位
+        shaf_rdata = message_length[63:32];
+      end
+
+      LenLo: begin // 填充消息长度的低32位
+        shaf_rdata = message_length[31:0];
+      end
+
+      default: begin
+        shaf_rdata = '0;
+      end
+    endcase
+  end
+```
+
+内部需要一个计数器，来触发状态机的切换，计数器控制代码如下：
+
+```systemverilog
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      tx_count <= '0;
+    end else if (hash_start) begin
+      tx_count <= '0;
+    end else if (inc_txcount) begin
+      tx_count[63:5] <= tx_count[63:5] + 1'b1;
+    end
+  end
+```
+
+然后通过状态机控制计数器和控制fifo输出，状态机如下：
+
+![sha2_pad 状态机](https://raw.githubusercontent.com/hardenedlinux/embedded-iot_profile/master/resources/images/docs/opentitan/sha2_pad.png)
+
+- StIdel，空闲状态输入fifo直接和输出fifo连接，当sha_en和hash_start为真时，进入StFifoReceive
+- StFifoReceive，此状态下输入fifo直接和输出fifo连接，当计数器达到消息长度后进入StPad80
+- StPad80，此状态下对输出fifo填充0x80，如果消息长度达到0x1a0进入StLenHi，负责进入StPad00
+- StPad00，此状态下对输出fifo填充0x00，直到消息长度达到0x1a0进入StLenHi
+- StLenHi，此状态下对输出fifo填充消息长度的高32位，然后进入StLenLo
+- StLenLo，此状态下对输出fifo填充消息长度的低32位，然后进入StIdel
+
+`sha2`模块用于计算hash，模块接口如下：
+
+```systemverilog
+module sha2 import hmac_pkg::*; (
+  // 时钟和复位
+  input clk_i,
+  input rst_ni,
+
+  input            wipe_secret,
+  input sha_word_t wipe_v,
+
+  //fifo，用于获取输入的消息
+  input             fifo_rvalid,
+  input  sha_fifo_t fifo_rdata,
+  output logic      fifo_rready,
+
+  // 控制信号
+  input        sha_en,
+  input        hash_start,
+  input        hash_process,
+  output logic hash_done,
+
+  input        [63:0] message_length, // 输入的消息长度（单位比特，需要是8的倍数），控制从fifo获取的字节数
+  output sha_word_t [7:0] digest      // 输出计算结果
+);
+```
+
+此模块内部有三个关键寄存器`w`、`hash`和`digest`。`w`用于存储从`sha2_pad`读取到的一个数据块，并在计算时存储中间变量。`hash`用于在hash运算时存储中间变量。`digest`用于在一轮运算完后保存上一轮的运算结果，以及在新一轮运算时加载到`hash`。以下三个变量主要操作代码如下：
+
+```systemverilog
+  // Fill up w
+  always_ff @(posedge clk_i or negedge rst_ni) begin : fill_w
+    if (!rst_ni) begin
+      w <= '0;
+    end else if (wipe_secret) begin
+      w <= w ^ {16{wipe_v}};
+    end else if (!sha_en) begin
+      w <= '0;
+    end else if (!run_hash && update_w_from_fifo) begin
+      // 从sha2_pad获取一块（512bit）数据
+      w <= {shaf_rdata, w[15:1]};
+    end else if (calculate_next_w) begin
+      // 每轮计算时更新w
+      w <= {calc_w(w[0], w[1], w[9], w[14]), w[15:1]};
+    end else if (run_hash) begin
+      // Just shift-out. There's no incoming data
+      w <= {sha_word_t'(0), w[15:1]};
+    end
+  end : fill_w
+
+  // Update engine
+  always_ff @(posedge clk_i or negedge rst_ni) begin : compress_round
+    if (!rst_ni) begin
+      hash <= '{default:'0};
+    end else if (wipe_secret) begin
+      for (int i = 0 ; i < 8 ; i++) begin
+        hash[i] <= hash[i] ^ wipe_v;
+      end
+    end else if (init_hash) begin
+      // 每获取一个数据块后，从digest加载上一个数据块的计算结果
+      hash <= digest;
+    end else if (run_hash) begin
+      // 每一轮计算更新hash
+      hash <= compress( w[0], CubicRootPrime[round], hash);
+    end
+  end : compress_round
+
+  // Digest
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      digest <= '{default: '0};
+    end else if (wipe_secret) begin
+      for (int i = 0 ; i < 8 ; i++) begin
+        digest[i] <= digest[i] ^ wipe_v;
+      end
+    end else if (hash_start) begin
+      // 开始对一段消息执行hash运算前初始化digest
+      for (int i = 0 ; i < 8 ; i++) begin
+        digest[i] <= InitHash[i];
+      end
+    end else if (!sha_en || clear_digest) begin
+      digest <= '0;
+    end else if (update_digest) begin
+      // 对一块数据处理完后，更新digest
+      for (int i = 0 ; i < 8 ; i++) begin
+        digest[i] <= digest[i] + hash[i];
+      end
+    end
+  end
+```
+
+对每一块数据需要处理64轮，其中通过一个计数器计数。
+
+```systemverilog
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      round <= '0;
+    end else if (!sha_en) begin
+      round <= '0;
+    end else if (run_hash) begin
+      if (round == (NumRound-1)) begin
+        round <= '0;
+      end else begin
+        round <= round + 1;
+      end
+    end
+  end
+```
+
+原始消息从`sha2_pad`获取，一次获取4个字节，需要通过一个计数器控制获取一个块。代码如下
+
+```systemverilog
+  // w_index
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      w_index <= '0;
+    end else if (!sha_en) begin
+      w_index <= '0;
+    end else if (update_w_from_fifo) begin
+      w_index <= w_index + 1;
+    end
+  end
+```
+
+此模块中有两个状态机，分别控制从`sha2_pad`获取原始消息和执行hash计算。控制`sha2_pad`取数据的状态机如下：
+
+![sha2 fifo 控制状态机](https://raw.githubusercontent.com/hardenedlinux/embedded-iot_profile/master/resources/images/docs/opentitan/sha2_fifo_fsm.png)
+
+- FifoIdle，空闲状态，在接受到hash_start后进入FifoLoadFromFifo
+- FifoLoadFromFifo，从sha2_pad获取一个数据块（512bit）,在获取到完整数据块后进入FifoWait
+- FifoWait，此状态等待另一个状态机控制并计算hash，当前数据块处理完成进入FifoLoadFromFifo，所有数据块处理完成进入FifoIdle
+
+控制hash计算的状态机如下：
+
+![sha2 hash 控制状态机](https://raw.githubusercontent.com/hardenedlinux/embedded-iot_profile/master/resources/images/docs/opentitan/sha2_hash_ctrl.png)
+
+- ShaIdle，空闲状态，等待上一个状态机进入FifoWait状态后，进入ShaCompress
+- ShaCompress，计算hash，在执行完所有轮次后进入ShaUpdateDigest
+- ShaUpdateDigest，更新digest，如果上一个状态机还在FifoWait状态进入ShaCompress否则进入ShaIdle
+
+通过两个状态机，实现了计算和获取下一个块同时进行。
+
+`hmac_core`模块用于连接输入消息fifo和`sha2`，以及输出一些控制信号，实现hmac计算。模块接口如下：
+
+```systemverilog
+module hmac_core import hmac_pkg::*; (
+  input clk_i,
+  input rst_ni,
+  
+  // hmac的密钥
+  input [255:0] secret_key, // {word0, word1, ..., word7}
+
+  input        wipe_secret,
+  input [31:0] wipe_v,
+
+  // hmac使能信号
+  input        hmac_en,
+
+  // 控制信号
+  input        reg_hash_start,
+  input        reg_hash_process,
+  output logic hash_done,
+  output logic sha_hash_start,
+  output logic sha_hash_process,
+  input        sha_hash_done,
+
+  // 输出给sha2的fifo
+  output logic      sha_rvalid,
+  output sha_fifo_t sha_rdata,
+  input             sha_rready,
+
+  // 原始消息的fifo
+  input             fifo_rvalid,
+  input  sha_fifo_t fifo_rdata,
+  output logic      fifo_rready,
+
+  // 原始消息fifo 控制信号，用于把计算出的hash压入fifo
+  output logic       fifo_wsel,    // 0: from reg, 1: from digest
+  output logic       fifo_wvalid,
+  output logic [2:0] fifo_wdata_sel, // 0: digest[0] .. 7: digest[7]
+  input              fifo_wready,
+
+  input  [63:0] message_length,    // 原始消息长度
+  output [63:0] sha_message_length // 输出给sha2计算hash的消息长度，内部状态机将控制此值
+);
+```
+
+在理解此部分代码之前，先了解以下hmac计算过程：
+
+```
+HMAC(K,m) = H(opad || H(ipad || m))
+ipad = K' XOR {BlockSize{0x36}}
+opad = K' XOR {BlockSize{0x5c}}
+/*
+   HMAC      表示函数，用于计算HMAC
+   H         表示函数，用于计算hash
+   ||        操作符，用于串连接
+   XOR       操作符，用于异或运算
+   K'        由K在尾补填充0，直到长度为块长度
+   BlockSize 常数sha2运算的块长度
+*/
+```
+
+计算ipad、opad的代码如下：
+
+```systemverilog
+  assign i_pad = {secret_key, {(BlockSize-256){1'b0}}} ^ {(BlockSize/8){8'h36}};
+  assign o_pad = {secret_key, {(BlockSize-256){1'b0}}} ^ {(BlockSize/8){8'h5c}};
+```
+
+在不同的状态需要获取的原始消息不同（ipad、m、opad），代码如下：
+
+```systemverilog
+  // 计算pad的偏移量
+  assign pad_index = txcount[BlockSizeBits-1:HashWordBits];
+  // 控制信号
+  assign fifo_rready  = (hmac_en) ? (st_q == StMsg) & sha_rready : sha_rready ;
+  assign sha_rvalid = (!hmac_en) ? fifo_rvalid : hmac_sha_rvalid ;
+  // 选择数据来源
+  assign sha_rdata =
+    (!hmac_en)             ? fifo_rdata                                               :
+    (sel_rdata == SelIPad) ? '{data: i_pad[(BlockSize-1)-32*pad_index-:32], mask: '1} :
+    (sel_rdata == SelOPad) ? '{data: o_pad[(BlockSize-1)-32*pad_index-:32], mask: '1} :
+    (sel_rdata == SelFifo) ? fifo_rdata                                               :
+    '{default: '0};
+```
+
+在计算hmac时需要计算两次hash，hash计算长度通过如下代码生成：
+
+```systemverilog
+  assign sha_message_length = (!hmac_en)                 ? message_length : // 一般hash计算
+                  (sel_msglen == SelIPadMsg) ? message_length + BlockSize : // hmac第一阶段hash计算
+                  (sel_msglen == SelOPadMsg) ? BlockSize + 256            : // hmac第二阶段hash计算
+                  '0 ;
+```
+
+`hmac_core`需要控制sha2的运行，通过如下代码生成控制信号：
+
+```systemverilog
+  // reg_hash_start reg_hash_process 来自寄存器
+  // hmac_hash_done hash_start hash_process 由状态机控制
+  // sha_hash_done 来自sha2
+  assign sha_hash_start   = (hmac_en) ? hash_start                       : reg_hash_start ;
+  assign sha_hash_process = (hmac_en) ? reg_hash_process | hash_process  : reg_hash_process ;
+  assign hash_done        = (hmac_en) ? hmac_hash_done                   : sha_hash_done  ;
+```
+
+`hmac_core`需要对传输给`sha2`的数据长度计算，相关代码如下：
+
+```systemverilog
+  // 传输一个字节进行一次计算
+  assign inc_txcount = sha_rready && sha_rvalid;
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      txcount <= '0;
+    end else if (clr_txcount) begin
+      txcount <= '0;
+    end else if (inc_txcount) begin
+      txcount[63:5] <= txcount[63:5] + 1'b1;
+    end
+  end
+
+  // 此信号用于判断传输了一整块
+  assign txcnt_eq_blksz = (txcount[BlockSizeBits:0] == BlockSize);
+```
+
+然后通过状态机控制hmac的计算，状态机如下：
+
+![hmac_core 状态机](https://raw.githubusercontent.com/hardenedlinux/embedded-iot_profile/master/resources/images/docs/opentitan/hmac_core_fsm.png)
+
+- StIdle，空闲状态，在hmac_en和reg_hash_start信号有效时进入StIPad
+- StIPad，从i_pad获取数据输出给sha2
+- StMsg，从元数据fifo获取数据输出给sha2
+- StWaitResp，等待sha2计算完成，通过寄存器round_q判断当前阶段，根据阶段进入StPushToMsgFifo或StDone
+- StPushToMsgFifo，此状态下控制输入fifo把计算出的hash压入fifo
+- StDone，计算完成输出控制信号
+
+`hmac`整合`hmac_core` `sha2` `hmac_reg_top`实现tlul总线上的设备接口，模块接口如下：
+
+```systemverilog
+module hmac
+  import prim_alert_pkg::*;
+  import hmac_pkg::*;
+  import hmac_reg_pkg::*;
+#(
+  parameter logic [NumAlerts-1:0] AlertAsyncOn = {NumAlerts{1'b1}}
+) (
+  // 时钟和复位
+  input clk_i,
+  input rst_ni,
+  
+  // 总线接口
+  input  tlul_pkg::tl_h2d_t tl_i,
+  output tlul_pkg::tl_d2h_t tl_o,
+
+  // 中断信号
+  output logic intr_hmac_done_o,
+  output logic intr_fifo_empty_o,
+  output logic intr_hmac_err_o,
+
+  // alerts
+  input  alert_rx_t [NumAlerts-1:0] alert_rx_i,
+  output alert_tx_t [NumAlerts-1:0] alert_tx_o
+);
+```
+
+在`hmac_reg_top`中通过模块`tlul_socket_1n`把总线拆分为两组，一组用于实现寄存器接口，一组输出。输出的接口通过模块`tlul_adapter_sram`转换为sram操作接口，每次可以写入的长度可并通过`prim_packer`整合为一个字，并写入到fifo中，代码如下：
+
+```systemverilog
+  // tlul总线转换sram接口
+  tlul_adapter_sram #(
+    .SramAw (9),
+    .SramDw (32),
+    .Outstanding (1),
+    .ByteAccess  (1),
+    .ErrOnRead   (1)
+  ) u_tlul_adapter (
+    .clk_i,
+    .rst_ni,
+    .tl_i   (tl_win_h2d[0]),
+    .tl_o   (tl_win_d2h[0]),
+
+    .req_o    (msg_fifo_req   ),
+    .gnt_i    (msg_fifo_gnt   ),
+    .we_o     (msg_fifo_we    ),
+    .addr_o   (msg_fifo_addr  ), // Doesn't care the address other than sub-word
+    .wdata_o  (msg_fifo_wdata ),
+    .wmask_o  (msg_fifo_wmask ),
+    .rdata_i  (msg_fifo_rdata ),
+    .rvalid_i (msg_fifo_rvalid),
+    .rerror_i (msg_fifo_rerror)
+  );
+
+  // 对来自cpu写入信号进行端转换
+  assign msg_fifo_wdata_endian = conv_endian(msg_fifo_wdata, ~endian_swap);
+  assign msg_fifo_wmask_endian = conv_endian(msg_fifo_wmask, ~endian_swap);
+
+  // 写入信号，经过此模块整合为32比特长度
+  prim_packer #(
+    .InW      (32),
+    .OutW     (32)
+  ) u_packer (
+    .clk_i,
+    .rst_ni,
+
+    .valid_i      (msg_write & sha_en),
+    .data_i       (msg_fifo_wdata_endian),
+    .mask_i       (msg_fifo_wmask_endian),
+    .ready_o      (packer_ready),
+
+    .valid_o      (reg_fifo_wvalid),
+    .data_o       (reg_fifo_wdata),
+    .mask_o       (reg_fifo_wmask),
+    .ready_i      (fifo_wready & ~hmac_fifo_wsel),
+
+    .flush_i      (reg_hash_process),
+    .flush_done_o (packer_flush_done) // ignore at this moment
+  );
+
+  // fifo缓存
+  prim_fifo_sync #(
+    .Width   ($bits(sha_fifo_t)),
+    .Pass    (1'b1),
+    .Depth   (MsgFifoDepth)
+  ) u_msg_fifo (
+    .clk_i,
+    .rst_ni,
+    .clr_i   (1'b0),
+
+    .wvalid_i(fifo_wvalid & sha_en),
+    .wready_o(fifo_wready),
+    .wdata_i (fifo_wdata),
+
+    .depth_o (fifo_depth),
+
+    .rvalid_o(fifo_rvalid),
+    .rready_i(fifo_rready),
+    .rdata_o (fifo_rdata)
+  );
+
+  // 读操作时始终返回全1
+  assign msg_fifo_rvalid = msg_fifo_req & ~msg_fifo_we;
+  assign msg_fifo_rdata  = '1;
+  assign msg_fifo_rerror = '1;
+
+  // 写入应答信号
+  assign msg_fifo_gnt    = msg_fifo_req & ~hmac_fifo_wsel & packer_ready;
+
+  // FIFO control
+  sha_fifo_t reg_fifo_wentry;
+  assign reg_fifo_wentry.data = conv_endian(reg_fifo_wdata, 1'b1); 
+  assign reg_fifo_wentry.mask = {reg_fifo_wmask[0],  reg_fifo_wmask[8],
+                                 reg_fifo_wmask[16], reg_fifo_wmask[24]};
+  assign fifo_full   = ~fifo_wready;
+  assign fifo_empty  = ~fifo_rvalid;
+  // 写fifo的控制信号
+  assign fifo_wvalid = (hmac_fifo_wsel && fifo_wready) ? hmac_fifo_wvalid : reg_fifo_wvalid;
+  assign fifo_wdata  = (hmac_fifo_wsel) ? '{data: digest[hmac_fifo_wdata_sel], mask: '1}
+                                       : reg_fifo_wentry;
+```
+
