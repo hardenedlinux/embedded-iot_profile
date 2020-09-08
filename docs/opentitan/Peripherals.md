@@ -3620,3 +3620,170 @@ module hmac
                                        : reg_fifo_wentry;
 ```
 
+## entropy_src
+
+`entropy_src`模块用于对熵源处理生成随机数。在理解此部分代码前请参考[ENTROPY_SRC HWIP Technical Specification](https://docs.opentitan.org/hw/ip/entropy_src/doc/)
+
+主要模块位于`hw/ip/entropy_src/rtl/entropy_src_core.sv`，接口如下：
+
+```systemverilog
+module entropy_src_core import entropy_src_pkg::*; #(
+  parameter int unsigned EsFifoDepth = 16
+) (
+  // 时钟和复位
+  input                  clk_i,
+  input                  rst_ni,
+
+  // 寄存器接口
+  input  entropy_src_reg_pkg::entropy_src_reg2hw_t reg2hw,
+  output entropy_src_reg_pkg::entropy_src_hw2reg_t hw2reg,
+
+  // Efuse Interface，用于控制输出
+  input efuse_es_sw_reg_en_i,
+
+  // 熵输出接口
+  input  entropy_src_hw_if_req_t entropy_src_hw_if_i,
+  output entropy_src_hw_if_rsp_t entropy_src_hw_if_o,
+
+  // 随机数源（4bit）
+  output entropy_src_rng_req_t entropy_src_rng_o,
+  input  entropy_src_rng_rsp_t entropy_src_rng_i,
+
+  output logic           es_entropy_valid_o,
+  output logic           es_rct_failed_o,
+  output logic           es_apt_failed_o,
+  output logic           es_fifo_err_o
+);
+```
+
+模块内部逻辑如下图
+```
++-------------------------+       +-------------------------+
+| External entropy source |       | internal entropy source |
+|   entropy_src_rng_o     |       |   prim_lfsr             |
+|   entropy_src_rng_i     |       |                         |
++-------------------------+       +-------------------------+
+            |                                   |
+            +-----------------+-----------------+
+                              ↓
+                      +-----------------+
+                      | prim_fifo(4bit) |
+                      +-----------------+
+                              |
+        +---------------------+-------------------+
+        ↓                                         ↓
++-----------------+                    +--------------------+
+| prim_packer     |                    | prim_packer        |
+|   4bit -> 32bit |                    |   rng_bit_sel      |
+|                 |                    |   1bit -> 32bit    |
++-----------------+                    +--------------------+
+        |                                         |
+        +---------------------+-------------------+
+                              ↓
+                     +------------------+
+                     | prim_fifo(32bit) |
+                     +------------------+ 
+                              |
+         +--------------------+-----------------+
+         ↓                                      ↓
++------------------+                +-----------------------+
+| prim_fifo(32bit) |                | prim_fifo(32bit)      |
+| to sw register   |                | to hw interface       |
+|                  |                |   entropy_src_hw_if_i |
+|                  |                |   entropy_src_hw_if_o |
++------------------+                +-----------------------+
+```
+
+此模块有一个外部熵源，可以通过配置选择使用外部熵源或内部的线性反馈移位寄存器作信号源。信号源为4比特，通过一个`prim_fifo`缓存。然后，通过寄存器配置，把4比特通过`prim_packer`转换为32比特，或者选择其中一个比特转换为32比特。然后在通过一个32比特`prim_fifo`缓存，然后通过配置把结果输出到软件或者硬件。
+
+其中4比特prim_fifo的输出结果会通过一个控制器`entropy_src_shtests`，来取保熵源的随机性。`entropy_src_shtests`模块只处理一个比特位。接口如下：
+
+```systemverilog
+module entropy_src_shtests (
+  // 时钟和复位
+  input                  clk_i,
+  input                  rst_ni,
+
+   // ins req interface
+  input logic            entropy_bit_i,     // 数据
+  input logic            entropy_bit_vld_i, // 数据有效标识
+  input logic            rct_active_i,      // rct使能
+  input logic [15:0]     rct_max_cnt_i,     // rct最大值
+  input logic            apt_active_i,      // apt使能
+  input logic [15:0]     apt_max_cnt_i,     // apt最大值
+  input logic [15:0]     apt_window_i,      // apt窗口宽度
+  output logic           rct_fail_pls_o,    // tct失败
+  output logic           apt_fail_pls_o,    // apt失败
+  output logic           shtests_passing_o  // 检测都通过
+);
+```
+
+其中，有两种检测方式rct/apt：
+
+- rct：信号连续重复次数
+- apt：在连续多少次中（窗口宽度）不能出现相同值的次数
+
+rct检测代码如下：
+
+```systemverilog
+  // 记录上一一个周期的信号
+  assign rct_prev_sample_d = ~rct_active_i ? 1'b0 :
+         (entropy_bit_vld_i & (rct_rep_cntr_q == 16'h0001)) ? entropy_bit_i :
+         rct_prev_sample_q;
+  // 当前信号与上一个周期信号相同
+  assign rct_samples_match = (rct_prev_sample_q == (entropy_bit_vld_i & entropy_bit_i));
+
+  // 计数器
+  assign rct_rep_cntr_d =
+         ~rct_active_i ? 16'h0001 : // 禁用时，计数器保持清除状态
+         rct_fail ? 16'h0001 : // 检测到错误，清除计数器
+         (entropy_bit_vld_i & rct_samples_match) ? (rct_rep_cntr_q+1) :
+         rct_pass ? 16'h0001 : // 信号发生变化，清除计数器
+         rct_rep_cntr_q;
+
+  assign rct_pass = rct_active_i & (entropy_bit_vld_i & ~rct_samples_match); // 信号发生变化
+  assign rct_fail = rct_active_i & (rct_rep_cntr_q >= rct_max_cnt_i); // 计数器溢出
+  assign rct_fail_pls_o = rct_fail; // 输出错误信息
+
+  // 检测结果
+  assign rct_passing_d =
+         ~rct_active_i ? 1'b1 :
+         rct_fail ? 1'b0 :
+         rct_pass ? 1'b1 :
+         rct_passing_q;
+```
+
+apt检测代码如下：
+
+```systemverilog
+  // 计数器复位条件： 禁用，检测到错误，窗口计数器溢出
+  assign apt_reset_test = ~apt_active_i | apt_fail | (apt_sample_cntr_q >= apt_window_i);
+
+  // 记录信号初始状态
+  assign apt_initial_sample_d =
+         ((apt_sample_cntr_q == 16'h0000) & entropy_bit_vld_i) ? entropy_bit_i :
+         apt_initial_sample_q;
+
+  // 窗口计数器
+  assign apt_sample_cntr_d = apt_reset_test ? 16'b0 :
+         entropy_bit_vld_i ? (apt_sample_cntr_q+1) :
+         apt_sample_cntr_q;
+  // 信号和初始状态匹配
+  assign apt_samples_match = entropy_bit_vld_i & (apt_initial_sample_q == entropy_bit_i);
+
+  // 信号重复次数计数器
+  assign apt_match_cntr_d = apt_reset_test ? 16'b0 :
+         (entropy_bit_vld_i & apt_samples_match) ? (apt_match_cntr_q+1) :
+         apt_match_cntr_q;
+
+  assign apt_pass = (apt_sample_cntr_q >= apt_window_i);
+  assign apt_fail = apt_active_i & (apt_match_cntr_q >= apt_max_cnt_i);
+  assign apt_fail_pls_o = apt_fail;
+
+  // 检测结果
+  assign apt_passing_d =
+         ~apt_active_i ? 1'b1 :
+         apt_fail ? 1'b0 :
+         apt_pass ? 1'b1 :
+         apt_passing_q;
+```
